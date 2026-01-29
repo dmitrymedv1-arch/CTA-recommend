@@ -1159,7 +1159,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     story.append(Spacer(1, 1.5*cm))
     
     # Копирайт информация
-    story.append(Paragraph("© CTA - Сhimica Techno Acta", footer_style))
+    story.append(Paragraph("© CTA - Chimica Techno Acta", footer_style))
     story.append(Paragraph("https://chimicatechnoacta.ru", footer_style))
     story.append(Paragraph("Developed by daM©", footer_style))
     
@@ -2199,6 +2199,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
