@@ -1055,261 +1055,44 @@ def analyze_works_for_topic(
 # ФУНКЦИИ ЭКСПОРТА
 # ============================================================================
 
-def generate_csv(data: List[dict], input_dois: List[str] = None, filter_params: Dict = None) -> str:
-    """Генерация CSV файла с метаданными анализа"""
-    
-    # Создаем DataFrame с данными статей
-    df_data = pd.DataFrame(data)
-    
-    # Создаем метаданные как отдельные строки
-    metadata_lines = []
-    
-    # Добавляем заголовок
-    metadata_lines.append("CTA Article Recommender Pro - Analysis Report")
-    metadata_lines.append("=" * 60)
-    
-    # Добавляем информацию об исходных DOI
-    if input_dois:
-        metadata_lines.append("")
-        metadata_lines.append("ORIGINAL INPUT DOIs:")
-        metadata_lines.append("-" * 40)
-        for i, doi in enumerate(input_dois[:50], 1):  # Ограничиваем 50 DOI для читаемости
-            metadata_lines.append(f"{i}. {doi}")
-        if len(input_dois) > 50:
-            metadata_lines.append(f"... and {len(input_dois) - 50} more")
-    
-    # Добавляем параметры фильтров
-    if filter_params:
-        metadata_lines.append("")
-        metadata_lines.append("ANALYSIS FILTERS:")
-        metadata_lines.append("-" * 40)
-        
-        if 'topic' in filter_params:
-            metadata_lines.append(f"Research Topic: {filter_params.get('topic', 'N/A')}")
-        
-        if 'years' in filter_params:
-            years = filter_params.get('years', [])
-            if years:
-                metadata_lines.append(f"Publication Years: {', '.join(map(str, years))}")
-        
-        if 'citation_ranges' in filter_params:
-            ranges = filter_params.get('citation_ranges', [])
-            if ranges:
-                range_strs = []
-                for start, end in ranges:
-                    if start == end:
-                        range_strs.append(str(start))
-                    else:
-                        range_strs.append(f"{start}-{end}")
-                metadata_lines.append(f"Citation Ranges: {', '.join(range_strs)}")
-        
-        if 'max_works' in filter_params:
-            metadata_lines.append(f"Max Works Analyzed: {filter_params.get('max_works', 2000)}")
-        
-        if 'top_n' in filter_params:
-            metadata_lines.append(f"Results Limit: {filter_params.get('top_n', 100)}")
-    
-    # Добавляем информацию о времени
-    metadata_lines.append("")
-    metadata_lines.append("REPORT INFO:")
-    metadata_lines.append("-" * 40)
-    metadata_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    metadata_lines.append(f"Total Papers Found: {len(data)}")
-    
-    # Рассчитываем статистики
-    if data:
-        citations = [w.get('cited_by_count', 0) for w in data]
-        metadata_lines.append(f"Average Citations: {np.mean(citations):.2f}")
-        metadata_lines.append(f"Median Citations: {np.median(citations):.2f}")
-        metadata_lines.append(f"Open Access Papers: {sum(1 for w in data if w.get('is_oa'))}")
-        
-        current_year = datetime.now().year
-        recent_count = sum(1 for w in data if w.get('publication_year', 0) >= current_year - 2)
-        metadata_lines.append(f"Recent Papers (≤2 years): {recent_count}")
-    
-    metadata_lines.append("")
-    metadata_lines.append("=" * 60)
-    metadata_lines.append("")
-    
-    # Создаем CSV строку
-    csv_parts = []
-    
-    # Добавляем метаданные как комментарии (начинаются с #)
-    for line in metadata_lines:
-        csv_parts.append(f"# {line}")
-    
-    # Добавляем пустую строку между метаданными и данными
-    csv_parts.append("")
-    
-    # Добавляем данные статей
-    if not df_data.empty:
-        csv_parts.append(df_data.to_csv(index=False))
-    else:
-        csv_parts.append("# No data to export")
-    
-    return "\n".join(csv_parts)
+def generate_csv(data: List[dict]) -> str:
+    """Генерация CSV файла"""
+    df = pd.DataFrame(data)
+    return df.to_csv(index=False, encoding='utf-8-sig')
 
-def generate_excel(data: List[dict], input_dois: List[str] = None, filter_params: Dict = None) -> bytes:
-    """Генерация Excel файла с метаданными"""
+def generate_excel(data: List[dict]) -> bytes:
+    """Генерация Excel файла"""
     output = io.BytesIO()
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Создаем лист с данными статей
-        df_data = pd.DataFrame(data)
-        
-        if not df_data.empty:
-            df_data.to_excel(writer, sheet_name='Papers', index=False, startrow=0)
-            worksheet = writer.sheets['Papers']
-            workbook = writer.book
-            
-            # Форматирование заголовков
-            header_format = workbook.add_format({
-                'bold': True,
-                'bg_color': '#667eea',
-                'font_color': 'white',
-                'border': 1,
-                'align': 'center'
-            })
-            
-            data_format = workbook.add_format({
-                'border': 1,
-                'align': 'left',
-                'valign': 'top',
-                'text_wrap': True
-            })
-            
-            # Применяем форматирование к заголовкам
-            for col_num, value in enumerate(df_data.columns.values):
-                worksheet.write(0, col_num, value, header_format)
-            
-            # Форматирование данных
-            for row_num in range(1, len(df_data) + 1):
-                for col_num in range(len(df_data.columns)):
-                    worksheet.write(row_num, col_num, df_data.iat[row_num-1, col_num], data_format)
-            
-            # Авто-ширина колонок
-            for i, col in enumerate(df_data.columns):
-                column_len = max(df_data[col].astype(str).map(len).max(), len(col)) + 2
-                worksheet.set_column(i, i, min(column_len, 50))
-        
-        # Создаем лист с метаданными
-        metadata_df = pd.DataFrame()
-        metadata_list = []
+        df = pd.DataFrame(data)
+        df.to_excel(writer, sheet_name='Papers', index=False)
         
         # Добавляем заголовок
-        metadata_list.append(["CTA ARTICLE RECOMMENDER PRO", ""])
-        metadata_list.append(["Analysis Report", ""])
-        metadata_list.append(["", ""])
-        metadata_list.append(["Generated", datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
-        metadata_list.append(["", ""])
+        workbook = writer.book
+        worksheet = writer.sheets['Papers']
         
-        # Добавляем информацию об исходных DOI
-        if input_dois:
-            metadata_list.append(["ORIGINAL INPUT DOIs", f"Total: {len(input_dois)}"])
-            metadata_list.append(["", ""])
-            
-            for i, doi in enumerate(input_dois[:20], 1):  # Ограничиваем 20 в Excel
-                metadata_list.append([f"DOI {i}", doi])
-            
-            if len(input_dois) > 20:
-                metadata_list.append(["", f"... and {len(input_dois) - 20} more"])
-            
-            metadata_list.append(["", ""])
+        # Форматирование
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#667eea',
+            'font_color': 'white',
+            'border': 1
+        })
         
-        # Добавляем параметры фильтров
-        if filter_params:
-            metadata_list.append(["ANALYSIS FILTERS", ""])
-            metadata_list.append(["", ""])
-            
-            if 'topic' in filter_params:
-                metadata_list.append(["Research Topic", filter_params.get('topic', 'N/A')])
-            
-            if 'years' in filter_params:
-                years = filter_params.get('years', [])
-                if years:
-                    metadata_list.append(["Publication Years", ', '.join(map(str, years))])
-            
-            if 'citation_ranges' in filter_params:
-                ranges = filter_params.get('citation_ranges', [])
-                if ranges:
-                    range_strs = []
-                    for start, end in ranges:
-                        if start == end:
-                            range_strs.append(str(start))
-                        else:
-                            range_strs.append(f"{start}-{end}")
-                    metadata_list.append(["Citation Ranges", ', '.join(range_strs)])
-            
-            if 'max_works' in filter_params:
-                metadata_list.append(["Max Works Analyzed", filter_params.get('max_works', 2000)])
-            
-            if 'top_n' in filter_params:
-                metadata_list.append(["Results Limit", filter_params.get('top_n', 100)])
-            
-            metadata_list.append(["", ""])
+        # Применяем к заголовкам
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, header_format)
         
-        # Добавляем статистики
-        if data:
-            metadata_list.append(["ANALYSIS STATISTICS", ""])
-            metadata_list.append(["", ""])
-            
-            citations = [w.get('cited_by_count', 0) for w in data]
-            metadata_list.append(["Total Papers Found", len(data)])
-            metadata_list.append(["Average Citations", f"{np.mean(citations):.2f}"])
-            metadata_list.append(["Median Citations", f"{np.median(citations):.2f}"])
-            metadata_list.append(["Open Access Papers", sum(1 for w in data if w.get('is_oa'))])
-            
-            current_year = datetime.now().year
-            recent_count = sum(1 for w in data if w.get('publication_year', 0) >= current_year - 2)
-            metadata_list.append(["Recent Papers (≤2 years)", recent_count])
-        
-        # Создаем DataFrame для метаданных
-        if metadata_list:
-            metadata_df = pd.DataFrame(metadata_list, columns=['Parameter', 'Value'])
-            
-            # Записываем на отдельный лист
-            metadata_df.to_excel(writer, sheet_name='Analysis Info', index=False)
-            
-            # Форматируем лист метаданных
-            metadata_sheet = writer.sheets['Analysis Info']
-            
-            # Форматирование заголовка
-            title_format = workbook.add_format({
-                'bold': True,
-                'font_size': 16,
-                'font_color': '#2C3E50',
-                'align': 'left'
-            })
-            
-            metadata_sheet.write(0, 0, "CTA ARTICLE RECOMMENDER PRO", title_format)
-            
-            # Форматирование параметров
-            param_format = workbook.add_format({
-                'bold': True,
-                'bg_color': '#F8F9FA',
-                'border': 1,
-                'align': 'left'
-            })
-            
-            value_format = workbook.add_format({
-                'border': 1,
-                'align': 'left',
-                'text_wrap': True
-            })
-            
-            # Применяем форматирование
-            for row_num in range(1, len(metadata_df)):
-                metadata_sheet.write(row_num, 0, metadata_df.iat[row_num, 0], param_format)
-                metadata_sheet.write(row_num, 1, metadata_df.iat[row_num, 1], value_format)
-            
-            # Авто-ширина колонок
-            metadata_sheet.set_column(0, 0, 25)
-            metadata_sheet.set_column(1, 1, 50)
+        # Авто-ширина колонок
+        for i, col in enumerate(df.columns):
+            column_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
+            worksheet.set_column(i, i, min(column_len, 50))
     
     return output.getvalue()
 
-def generate_pdf(data: List[dict], topic_name: str, input_dois: List[str] = None, filter_params: Dict = None) -> bytes:
-    """Генерация PDF файла с улучшенным дизайном, метаданными и исправлением ошибки DOI"""
+def generate_pdf(data: List[dict], topic_name: str) -> bytes:
+    """Генерация PDF файла с улучшенным дизайном и активными гиперссылками"""
     
     buffer = io.BytesIO()
     
@@ -1380,7 +1163,7 @@ def generate_pdf(data: List[dict], topic_name: str, input_dois: List[str] = None
         spaceAfter=4,
         alignment=TA_LEFT,
         fontName='Helvetica-Bold',
-        underline=True
+        underline=True  # Показываем, что это ссылка
     )
     
     # Стиль для авторов
@@ -1450,25 +1233,11 @@ def generate_pdf(data: List[dict], topic_name: str, input_dois: List[str] = None
         fontName='Helvetica-Oblique'
     )
     
-    # Стиль для информации о воспроизведении
-    reproduce_style = ParagraphStyle(
-        'CustomReproduce',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=colors.HexColor('#8E44AD'),
-        spaceAfter=5,
-        alignment=TA_LEFT,
-        fontName='Helvetica-Oblique',
-        borderWidth=1,
-        borderColor=colors.HexColor('#D7BDE2'),
-        borderRadius=3,
-        padding=(6, 6, 6, 6)
-    )
-    
     story = []
     
     # ========== ЗАГОЛОВОЧНАЯ СТРАНИЦА ==========
     
+    # Логотип или заголовок
     story.append(Spacer(1, 2*cm))
     story.append(Paragraph("CTA Article Recommender Pro", title_style))
     story.append(Paragraph("Fresh Papers Analysis Report", subtitle_style))
@@ -1507,186 +1276,27 @@ def generate_pdf(data: List[dict], topic_name: str, input_dois: List[str] = None
     # Разделитель страниц
     story.append(PageBreak())
     
-    # ========== СТРАНИЦА С МЕТАДАННЫМИ ==========
-    
-    story.append(Paragraph("ANALYSIS METADATA", title_style))
-    story.append(Spacer(1, 0.5*cm))
-    
-    # Информация об исходных данных
-    if input_dois:
-        story.append(Paragraph("ORIGINAL INPUT DATA", subtitle_style))
-        story.append(Paragraph(f"Total DOIs analyzed: {len(input_dois)}", details_style))
-        story.append(Spacer(1, 0.3*cm))
-        
-        # Создаем таблицу с DOI (первые 15)
-        doi_data = [["#", "DOI"]]
-        for i, doi in enumerate(input_dois[:15], 1):
-            # Ограничиваем длину DOI для лучшего отображения
-            display_doi = doi if len(doi) <= 80 else doi[:77] + "..."
-            doi_data.append([str(i), display_doi])
-        
-        if len(input_dois) > 15:
-            doi_data.append(["...", f"... and {len(input_dois) - 15} more"])
-        
-        doi_table = Table(doi_data, colWidths=[doc.width/10, doc.width/1.2])
-        doi_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498DB')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D5DBDB')),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F4F4')]),
-        ]))
-        
-        story.append(doi_table)
-        story.append(Spacer(1, 0.5*cm))
-    
-    # Параметры фильтров
-    if filter_params:
-        story.append(Paragraph("ANALYSIS FILTERS", subtitle_style))
-        story.append(Spacer(1, 0.3*cm))
-        
-        filter_data = [["Parameter", "Value"]]
-        
-        if 'topic' in filter_params and filter_params['topic'] != topic_name:
-            filter_data.append(["Research Topic", filter_params['topic']])
-        
-        if 'years' in filter_params:
-            years = filter_params.get('years', [])
-            if years:
-                filter_data.append(["Publication Years", ', '.join(map(str, years))])
-        
-        if 'citation_ranges' in filter_params:
-            ranges = filter_params.get('citation_ranges', [])
-            if ranges:
-                range_strs = []
-                for start, end in ranges:
-                    if start == end:
-                        range_strs.append(str(start))
-                    else:
-                        range_strs.append(f"{start}-{end}")
-                filter_data.append(["Citation Ranges", ', '.join(range_strs)])
-        
-        if 'max_works' in filter_params:
-            filter_data.append(["Max Works Analyzed", str(filter_params.get('max_works', 2000))])
-        
-        if 'top_n' in filter_params:
-            filter_data.append(["Results Limit", str(filter_params.get('top_n', 100))])
-        
-        filter_table = Table(filter_data, colWidths=[doc.width/2.5, doc.width/3])
-        filter_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ECC71')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D5DBDB')),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F4F4')]),
-        ]))
-        
-        story.append(filter_table)
-    
-    story.append(Spacer(1, 1*cm))
-    
-    # ========== ИНФОРМАЦИЯ ДЛЯ ВОСПРОИЗВЕДЕНИЯ ==========
-    
-    story.append(Paragraph("HOW TO REPRODUCE THIS ANALYSIS", subtitle_style))
-    story.append(Spacer(1, 0.3*cm))
-    
-    reproduce_text = """
-    <para>
-    <b>Steps to reproduce this analysis in CTA Article Recommender Pro:</b><br/><br/>
-    1. <b>Go to Step 1: Data Input</b><br/>
-       Enter the DOI(s) listed above (copy-paste recommended)<br/><br/>
-    2. <b>Proceed through analysis steps</b><br/>
-       Click "Start Analysis" and wait for data processing<br/><br/>
-    3. <b>In Step 3: Topic Selection</b><br/>
-       Select the same research topic<br/>
-       Apply the exact filters listed above:<br/>
-       - Publication Years<br/>
-       - Citation Ranges<br/><br/>
-    4. <b>Start Deep Analysis</b><br/>
-       Click "Start Deep Analysis" to get similar results<br/><br/>
-    <b>Note:</b> This analysis focuses on "under-cited" papers (0-10 citations) 
-    published in recent years, providing fresh perspectives on the research topic.
-    Small variations may occur due to real-time data updates in OpenAlex.
-    </para>
-    """
-    
-    story.append(Paragraph(reproduce_text, ParagraphStyle(
-        'ReproduceStyle',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=colors.HexColor('#34495E'),
-        spaceAfter=10,
-        alignment=TA_JUSTIFY,
-        fontName='Helvetica',
-        leftIndent=10,
-        rightIndent=10,
-        backColor=colors.HexColor('#F9F7FD')
-    )))
-    
-    story.append(Spacer(1, 0.5*cm))
-    
-    # Статистика анализа
-    if data:
-        story.append(Paragraph("ANALYSIS STATISTICS", subtitle_style))
-        story.append(Spacer(1, 0.3*cm))
-        
-        stats_data = [
-            ["Metric", "Value"],
-            ["Total Papers Found", len(data)],
-            ["Average Citations", f"{np.mean([w.get('cited_by_count', 0) for w in data]):.2f}"],
-            ["Median Citations", f"{np.median([w.get('cited_by_count', 0) for w in data]):.2f}"],
-            ["Open Access Papers", sum(1 for w in data if w.get('is_oa'))],
-            ["Recent Papers (≤2 years)", sum(1 for w in data if w.get('publication_year', 0) >= datetime.now().year - 2)],
-            ["Average Relevance Score", f"{np.mean([w.get('relevance_score', 0) for w in data]):.2f}/10"]
-        ]
-        
-        stats_table = Table(stats_data, colWidths=[doc.width/2.5, doc.width/3])
-        stats_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#9B59B6')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D5DBDB')),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F4F4')]),
-        ]))
-        
-        story.append(stats_table)
-    
-    story.append(PageBreak())
-    
     # ========== КРАТКОЕ СОДЕРЖАНИЕ ==========
     
     story.append(Paragraph("TABLE OF CONTENTS", title_style))
     story.append(Spacer(1, 0.5*cm))
     
     # Создаем оглавление
-    if data:
-        toc_items = []
-        for i in range(min(30, len(data))):  # Ограничиваем 30 записями для читаемости
-            title = data[i].get('title', 'Untitled')
-            # Очищаем заголовок от HTML-тегов
-            title_clean = re.sub(r'<[^>]+>', '', title)
-            title_clean = title_clean.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            toc_items.append(f"{i+1}. {title_clean[:70]}...")
-        
-        toc_text = "<br/>".join(toc_items[:20])  # Первые 20 в оглавлении
-        story.append(Paragraph(toc_text, details_style))
-        
-        if len(data) > 20:
-            story.append(Paragraph(f"... and {len(data)-20} more papers", details_style))
-    else:
-        story.append(Paragraph("No papers available for display", details_style))
+    toc_items = []
+    for i in range(min(50, len(data))):  # Ограничиваем 50 записями для читаемости
+        # Убираем все HTML-теги из заголовков для оглавления
+        title = data[i].get('title', 'Untitled')
+        # Удаляем HTML-теги и сущности
+        title_clean = re.sub(r'<[^>]+>', '', title)  # Удаляем HTML-теги
+        # Также можно заменить HTML-сущности на обычные символы
+        title_clean = title_clean.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        toc_items.append(f"{i+1}. {title_clean[:80]}...")
+    
+    toc_text = "<br/>".join(toc_items[:20])  # Первые 20 в оглавлении
+    story.append(Paragraph(toc_text, details_style))
+    
+    if len(data) > 20:
+        story.append(Paragraph(f"... and {len(data)-20} more papers", details_style))
     
     story.append(PageBreak())
     
@@ -1696,84 +1306,71 @@ def generate_pdf(data: List[dict], topic_name: str, input_dois: List[str] = None
     story.append(Spacer(1, 0.5*cm))
     
     # Обрабатываем каждую статью (ограничиваем 50 для читаемости)
-    if data:
-        for i, work in enumerate(data[:50], 1):
-            # Заголовок статьи с гиперссылкой
-            title = work.get('title', 'No title available')
-            doi = work.get('doi', '')
-            doi_url = work.get('doi_url', '')
-            
-            # Создаем гиперссылку в PDF
+    for i, work in enumerate(data[:50], 1):
+        # Заголовок статьи с гиперссылкой
+        title = work.get('title', 'No title available')
+        doi = work.get('doi', '')
+        doi_url = work.get('doi_url', '')
+        
+        # Создаем гиперссылку в PDF
+        if doi_url:
+            title_with_link = f'<link href="{doi_url}" color="blue"><u>{title}</u></link>'
+        else:
+            title_with_link = title
+        
+        story.append(Paragraph(f"{i}. {title_with_link}", paper_title_style))
+        
+        # Авторы
+        authors = work.get('authors', [])
+        if authors:
+            authors_text = ', '.join(authors[:3])
+            if len(authors) > 3:
+                authors_text += f' et al. ({len(authors)} authors)'
+            story.append(Paragraph(f"<b>Authors:</b> {authors_text}", authors_style))
+        
+        # Основные метрики в одной строке
+        citations = work.get('cited_by_count', 0)
+        year = work.get('publication_year', 'N/A')
+        relevance = work.get('relevance_score', 0)
+        journal = work.get('journal_name', 'N/A')[:40]
+        
+        metrics_text = f"""
+        <b>Citations:</b> {citations} | 
+        <b>Year:</b> {year} | 
+        <b>Relevance Score:</b> {relevance}/10 | 
+        <b>Journal:</b> {journal} | 
+        <b>Open Access:</b> {'Yes' if work.get('is_oa') else 'No'}
+        """
+        story.append(Paragraph(metrics_text, metrics_style))
+        
+        # Ключевые слова (если есть)
+        if work.get('matched_keywords'):
+            keywords = ', '.join(work.get('matched_keywords', [])[:5])
+            story.append(Paragraph(f"<b>Matched Keywords:</b> {keywords}", keywords_style))
+        
+        # DOI ссылка
+        if doi:
             if doi_url:
-                title_with_link = f'<link href="{doi_url}" color="blue"><u>{title}</u></link>'
+                doi_link = f'<link href="{doi_url}" color="blue"><u>{doi}</u></link>'
             else:
-                title_with_link = title
-            
-            story.append(Paragraph(f"{i}. {title_with_link}", paper_title_style))
-            
-            # Авторы
-            authors = work.get('authors', [])
-            if authors:
-                authors_text = ', '.join(authors[:3])
-                if len(authors) > 3:
-                    authors_text += f' et al. ({len(authors)} authors)'
-                story.append(Paragraph(f"<b>Authors:</b> {authors_text}", authors_style))
-            
-            # Основные метрики в одной строке
-            citations = work.get('cited_by_count', 0)
-            year = work.get('publication_year', 'N/A')
-            relevance = work.get('relevance_score', 0)
-            journal = work.get('journal_name', 'N/A')[:40]
-            topic = work.get('primary_topic', 'N/A')[:30]
-            
-            metrics_text = f"""
-            <b>Citations:</b> {citations} | 
-            <b>Year:</b> {year} | 
-            <b>Relevance Score:</b> {relevance}/10 | 
-            <b>Journal:</b> {journal} | 
-            <b>Topic:</b> {topic} | 
-            <b>Open Access:</b> {'Yes' if work.get('is_oa') else 'No'}
-            """
-            story.append(Paragraph(metrics_text, metrics_style))
-            
-            # Ключевые слова (если есть)
-            if work.get('matched_keywords'):
-                keywords = ', '.join(work.get('matched_keywords', [])[:5])
-                story.append(Paragraph(f"<b>Matched Keywords:</b> {keywords}", keywords_style))
-            
-            # DOI ссылка (ИСПРАВЛЕННАЯ ВЕРСИЯ - без двойного XML)
-            if doi_url:
-                # Правильное создание XML-ссылки
-                story.append(Paragraph(f"<b>DOI:</b> <link href='{doi_url}' color='blue'><u>{doi}</u></link>", details_style))
-            elif doi:
-                story.append(Paragraph(f"<b>DOI:</b> {doi}", details_style))
+                doi_link = doi
+            if doi_link.startswith('<link '):
+                # Парсим XML чтобы получить URL и текст
+                match = re.search(r'href="([^"]+)"[^>]*>([^<]+)<', doi_link)
+                if match:
+                    url = match.group(1)
+                    text = match.group(2)
+                    # Создаем правильную XML-ссылку
+                    story.append(Paragraph(f"<b>DOI:</b> <link href='{url}' color='blue'><u>{text}</u></link>", details_style))
+                else:
+                    story.append(Paragraph(f"<b>DOI:</b> {doi}", details_style))
             else:
-                story.append(Paragraph("<b>DOI:</b> Not available", details_style))
-            
-            # Абстракт (если есть и короткий)
-            abstract = work.get('abstract', '')
-            if abstract and len(abstract) < 200:
-                story.append(Paragraph("<b>Abstract:</b>", details_style))
-                # Ограничиваем абстракт для читаемости
-                abstract_short = abstract[:150] + "..." if len(abstract) > 150 else abstract
-                story.append(Paragraph(abstract_short, ParagraphStyle(
-                    'AbstractStyle',
-                    parent=styles['Normal'],
-                    fontSize=8,
-                    textColor=colors.HexColor('#7D6608'),
-                    spaceAfter=2,
-                    alignment=TA_JUSTIFY,
-                    fontName='Helvetica-Oblique',
-                    leftIndent=10,
-                    rightIndent=10
-                )))
-            
-            # Разделитель между статьями
-            if i < min(50, len(data)):
-                story.append(Paragraph("─" * 80, separator_style))
-                story.append(Spacer(1, 0.2*cm))
-    else:
-        story.append(Paragraph("No papers available for detailed analysis.", details_style))
+                story.append(Paragraph(f"<b>DOI:</b> {doi_link}", details_style))
+                
+        # Разделитель между статьями
+        if i < min(50, len(data)):
+            story.append(Paragraph("─" * 80, separator_style))
+            story.append(Spacer(1, 0.2*cm))
     
     # ========== СТАТИСТИЧЕСКАЯ СТРАНИЦА ==========
     
@@ -1820,56 +1417,20 @@ def generate_pdf(data: List[dict], topic_name: str, input_dois: List[str] = None
             story.append(stats_table)
             story.append(Spacer(1, 1*cm))
             
-            # Распределение по цитированиям
-            if citations_list:
-                story.append(Paragraph("CITATION DISTRIBUTION", subtitle_style))
-                story.append(Spacer(1, 0.3*cm))
-                
-                citation_ranges = [
-                    ("0 citations", 0, 0),
-                    ("1-2 citations", 1, 2),
-                    ("3-5 citations", 3, 5),
-                    ("6-10 citations", 6, 10),
-                    ("11-20 citations", 11, 20),
-                    ("21+ citations", 21, 1000)
-                ]
-                
-                citation_data = [["Citation Range", "Count", "Percentage"]]
-                for label, min_cit, max_cit in citation_ranges:
-                    count = sum(1 for w in data if min_cit <= w.get('cited_by_count', 0) <= max_cit)
-                    if count > 0:
-                        percentage = (count / len(data)) * 100
-                        citation_data.append([label, str(count), f"{percentage:.1f}%"])
-                
-                if len(citation_data) > 1:
-                    citation_table = Table(citation_data, colWidths=[doc.width/3, doc.width/6, doc.width/6])
-                    citation_table.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ECC71')),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D5DBDB')),
-                        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F4F4')]),
-                    ]))
-                    story.append(citation_table)
-                    story.append(Spacer(1, 0.5*cm))
-            
             # Распределение по годам
             if years_list:
-                story.append(Paragraph("PUBLICATIONS BY YEAR", subtitle_style))
-                story.append(Spacer(1, 0.3*cm))
-                
                 year_counts = {}
                 for year in years_list:
                     year_counts[year] = year_counts.get(year, 0) + 1
                 
-                sorted_years = sorted(year_counts.items(), reverse=True)[:10]  # Последние 10 лет
-                year_data = [["Year", "Number of Papers"]] + [[str(y), str(c)] for y, c in sorted_years]
+                sorted_years = sorted(year_counts.items())
+                year_data = [["Year", "Number of Papers"]] + [[str(y), str(c)] for y, c in sorted_years[-10:]]  # Последние 10 лет
                 
                 if len(year_data) > 1:
+                    story.append(Paragraph("Publications by Year (Last 10 years)", subtitle_style))
                     year_table = Table(year_data, colWidths=[doc.width/4, doc.width/4])
                     year_table.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E74C3C')),
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ECC71')),
                         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -1908,36 +1469,6 @@ def generate_pdf(data: List[dict], topic_name: str, input_dois: List[str] = None
     
     story.append(Spacer(1, 1*cm))
     
-    # Информация о воспроизводимости
-    story.append(Paragraph("REPRODUCIBILITY INFO", subtitle_style))
-    story.append(Spacer(1, 0.3*cm))
-    
-    reproducibility_text = f"""
-    <para>
-    <b>Analysis Parameters:</b><br/>
-    • Research Topic: {topic_name}<br/>
-    • Input DOIs: {len(input_dois) if input_dois else 0}<br/>
-    • Filter: Last 3 years, under-cited papers (0-10 citations)<br/>
-    • Analysis Date: {current_date}<br/><br/>
-    <b>To reproduce:</b> Use the exact same DOIs and filter parameters listed in this report.
-    </para>
-    """
-    
-    story.append(Paragraph(reproducibility_text, ParagraphStyle(
-        'ReproducibilityStyle',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=colors.HexColor('#7D6608'),
-        spaceAfter=10,
-        alignment=TA_JUSTIFY,
-        fontName='Helvetica',
-        leftIndent=10,
-        rightIndent=10,
-        backColor=colors.HexColor('#FEF9E7')
-    )))
-    
-    story.append(Spacer(1, 1*cm))
-    
     # Заключительные замечания
     story.append(Paragraph("FINAL NOTES", subtitle_style))
     final_notes = [
@@ -1953,12 +1484,7 @@ def generate_pdf(data: List[dict], topic_name: str, input_dois: List[str] = None
     # Нижний колонтитул на последней странице
     story.append(Spacer(1, 2*cm))
     story.append(Paragraph("© CTA Article Recommender Pro - https://chimicatechnoacta.ru", footer_style))
-    
-    # Генерация уникального ID отчета
-    report_id_data = f"{topic_name}_{len(input_dois) if input_dois else 0}_{len(data)}_{datetime.now().timestamp()}"
-    report_id = hashlib.md5(report_id_data.encode()).hexdigest()[:12].upper()
-    
-    story.append(Paragraph(f"Report ID: {report_id}", 
+    story.append(Paragraph(f"Report ID: {hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8]}", 
                          ParagraphStyle(
                              'ReportID',
                              parent=styles['Normal'],
@@ -1967,213 +1493,163 @@ def generate_pdf(data: List[dict], topic_name: str, input_dois: List[str] = None
                              alignment=TA_CENTER
                          )))
     
-    story.append(Paragraph(f"Input DOI Count: {len(input_dois) if input_dois else 0} | " 
-                         f"Results: {len(data)} papers | "
-                         f"Generated: {datetime.now().strftime('%Y-%m-%d')}",
-                         ParagraphStyle(
-                             'ReportMeta',
-                             parent=styles['Normal'],
-                             fontSize=7,
-                             textColor=colors.HexColor('#BDC3C7'),
-                             alignment=TA_CENTER
-                         )))
-    
     # ========== ГЕНЕРАЦИЯ PDF ==========
     
-    try:
-        doc.build(story)
-        return buffer.getvalue()
-    except Exception as e:
-        logger.error(f"Error generating PDF: {str(e)}")
-        # Возвращаем простой PDF с ошибкой
-        buffer = io.BytesIO()
-        doc_error = SimpleDocTemplate(
-            buffer, 
-            pagesize=A4,
-            topMargin=1*cm,
-            bottomMargin=1*cm,
-            leftMargin=1.5*cm,
-            rightMargin=1.5*cm
-        )
-        
-        error_story = []
-        error_story.append(Spacer(1, 3*cm))
-        error_story.append(Paragraph("Error Generating PDF Report", title_style))
-        error_story.append(Spacer(1, 1*cm))
-        error_story.append(Paragraph(f"An error occurred while generating the PDF report.", details_style))
-        error_story.append(Paragraph(f"Error details: {str(e)[:200]}", details_style))
-        error_story.append(Spacer(1, 1*cm))
-        error_story.append(Paragraph("Please try exporting in CSV or Excel format instead.", details_style))
-        
-        doc_error.build(error_story)
-        return buffer.getvalue()
+    doc.build(story)
+    
+    return buffer.getvalue()
 
-def generate_txt(data: List[dict], topic_name: str, input_dois: List[str] = None, filter_params: Dict = None) -> str:
+def generate_txt(data: List[dict], topic_name: str) -> str:
     """Генерация TXT файла с улучшенным форматированием и структурой"""
     
     output = []
     
-    # ========== ЗАГОЛОВОК И МЕТАДАННЫЕ ==========
+    # ========== ЗАГОЛОВОК ==========
     output.append("=" * 80)
     output.append("CTA Article Recommender Pro")
     output.append("Under-Cited Papers Analysis Report")
     output.append("=" * 80)
     output.append("")
     
-    # ========== ИНФОРМАЦИЯ ОБ ИСХОДНЫХ ДАННЫХ ==========
-    output.append("ANALYSIS INPUT DATA")
-    output.append("-" * 40)
-    
-    output.append(f"Research Topic: {topic_name}")
-    output.append(f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    # ========== ИНФОРМАЦИЯ О ТЕМЕ ==========
+    output.append("RESEARCH TOPIC:")
+    output.append(f"  {topic_name.upper()}")
     output.append("")
     
-    # Информация об исходных DOI
-    if input_dois:
-        output.append(f"ORIGINAL INPUT: {len(input_dois)} DOI(s) analyzed")
-        output.append("")
-        output.append("Input DOIs:")
-        output.append("-" * 40)
-        
-        for i, doi in enumerate(input_dois[:30], 1):  # Ограничиваем 30 DOI для читаемости
-            output.append(f"{i:3d}. {doi}")
-        
-        if len(input_dois) > 30:
-            output.append(f"    ... and {len(input_dois) - 30} more")
-        
-        output.append("")
-    
-    # ========== ПАРАМЕТРЫ ФИЛЬТРОВ ==========
-    if filter_params:
-        output.append("ANALYSIS FILTERS")
-        output.append("-" * 40)
-        
-        if 'topic' in filter_params and filter_params['topic'] != topic_name:
-            output.append(f"Topic: {filter_params['topic']}")
-        
-        if 'years' in filter_params:
-            years = filter_params.get('years', [])
-            if years:
-                output.append(f"Publication Years: {', '.join(map(str, years))}")
-        
-        if 'citation_ranges' in filter_params:
-            ranges = filter_params.get('citation_ranges', [])
-            if ranges:
-                range_strs = []
-                for start, end in ranges:
-                    if start == end:
-                        range_strs.append(str(start))
-                    else:
-                        range_strs.append(f"{start}-{end}")
-                output.append(f"Citation Ranges: {', '.join(range_strs)}")
-        
-        if 'max_works' in filter_params:
-            output.append(f"Max Works Analyzed: {filter_params.get('max_works', 2000)}")
-        
-        if 'top_n' in filter_params:
-            output.append(f"Results Limit: {filter_params.get('top_n', 100)}")
-        
-        output.append("")
-    
-    # ========== СВОДНАЯ СТАТИСТИКА ==========
-    output.append("ANALYSIS SUMMARY")
-    output.append("-" * 40)
-    output.append(f"Papers Found: {len(data)}")
+    # ========== МЕТА-ИНФОРМАЦИЯ ==========
+    current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    output.append("REPORT INFORMATION:")
+    output.append(f"  Generated: {current_date}")
+    output.append(f"  Papers analyzed: {len(data)}")
     
     if data:
-        citations = [w.get('cited_by_count', 0) for w in data]
-        output.append(f"Average Citations: {np.mean(citations):.2f}")
-        output.append(f"Median Citations: {np.median(citations):.2f}")
-        output.append(f"Minimum Citations: {min(citations)}")
-        output.append(f"Maximum Citations: {max(citations)}")
-        
+        avg_citations = np.mean([w.get('cited_by_count', 0) for w in data])
         oa_count = sum(1 for w in data if w.get('is_oa'))
-        output.append(f"Open Access Papers: {oa_count} ({oa_count/len(data)*100:.1f}%)")
+        recent_count = sum(1 for w in data if w.get('publication_year', 0) >= datetime.now().year - 2)
         
-        current_year = datetime.now().year
-        recent_count = sum(1 for w in data if w.get('publication_year', 0) >= current_year - 2)
-        output.append(f"Recent Papers (≤2 years): {recent_count} ({recent_count/len(data)*100:.1f}%)")
-        
-        # Распределение по годам
-        output.append("")
-        output.append("PUBLICATION YEAR DISTRIBUTION:")
-        years = [w.get('publication_year', 0) for w in data if w.get('publication_year', 0) > 1900]
-        if years:
-            year_counts = {}
-            for year in years:
-                year_counts[year] = year_counts.get(year, 0) + 1
-            
-            for year in sorted(year_counts.keys(), reverse=True):
-                count = year_counts[year]
-                percentage = (count / len(data)) * 100
-                output.append(f"  {year}: {count:3d} papers ({percentage:5.1f}%)")
+        output.append(f"  Average citations: {avg_citations:.2f}")
+        output.append(f"  Open Access papers: {oa_count}")
+        output.append(f"  Recent papers (≤2 years): {recent_count}")
     
+    output.append("")
+    output.append("© CTA - Chemical Technology Acta")
+    output.append("https://chimicatechnoacta.ru")
+    output.append("Developed by daM©")
     output.append("")
     output.append("=" * 80)
     output.append("")
     
-    # ========== ДЕТАЛЬНЫЙ АНАЛИЗ СТАТЕЙ ==========
+    # ========== ОГЛАВЛЕНИЕ ==========
+    output.append("TABLE OF CONTENTS")
+    output.append("-" * 40)
+    
+    # Группируем статьи по релевантности
+    high_relevance = [w for w in data if w.get('relevance_score', 0) >= 8]
+    medium_relevance = [w for w in data if 5 <= w.get('relevance_score', 0) < 8]
+    low_relevance = [w for w in data if w.get('relevance_score', 0) < 5]
+    
+    output.append(f"  High Relevance (Score ≥ 8): {len(high_relevance)} papers")
+    output.append(f"  Medium Relevance (5-7): {len(medium_relevance)} papers")
+    output.append(f"  Low Relevance (Score < 5): {len(low_relevance)} papers")
+    output.append("")
+    
+    # Быстрый обзор по годам
     if data:
-        output.append("DETAILED PAPER ANALYSIS")
-        output.append("=" * 80)
-        output.append("")
+        years = [w.get('publication_year', 0) for w in data if w.get('publication_year', 0) > 1900]
+        if years:
+            output.append("PUBLICATION YEAR DISTRIBUTION:")
+            year_counts = {}
+            for year in years:
+                year_counts[year] = year_counts.get(year, 0) + 1
+            
+            for year in sorted(year_counts.keys(), reverse=True)[:5]:  # Топ 5 последних лет
+                output.append(f"  {year}: {year_counts[year]} papers")
+            output.append("")
+    
+    output.append("=" * 80)
+    output.append("")
+    
+    # ========== ДЕТАЛЬНЫЙ АНАЛИЗ СТАТЕЙ ==========
+    output.append("DETAILED PAPER ANALYSIS")
+    output.append("=" * 80)
+    output.append("")
+    
+    for i, work in enumerate(data, 1):
+        # Номер и релевантность
+        relevance_score = work.get('relevance_score', 0)
+        relevance_stars = "★" * min(int(relevance_score), 5) + "☆" * max(5 - int(relevance_score), 0)
         
-        for i, work in enumerate(data, 1):
-            # Номер и релевантность
-            relevance_score = work.get('relevance_score', 0)
-            relevance_stars = "★" * min(int(relevance_score), 5) + "☆" * max(5 - int(relevance_score), 0)
-            
-            output.append(f"PAPER #{i:03d}")
-            output.append(f"Relevance: {relevance_score}/10 {relevance_stars}")
-            output.append("-" * 40)
-            
-            # Заголовок
-            title = work.get('title', 'No title available')
-            output.append(f"TITLE: {title}")
-
-            authors = work.get('authors', [])
-            if authors:
-                output.append(f"AUTHORS: {', '.join(authors[:3])}")
-                if len(authors) > 3:
-                    output.append(f"         + {len(authors) - 3} more authors")
-            
-            # Основные метрики
-            citations = work.get('cited_by_count', 0)
-            year = work.get('publication_year', 'N/A')
-            journal = work.get('journal_name', 'N/A')
-            
-            output.append("METRICS:")
-            output.append(f"  • Citations: {citations}")
-            output.append(f"  • Year: {year}")
-            output.append(f"  • Journal/Conference: {journal}")
-            output.append(f"  • Open Access: {'Yes' if work.get('is_oa') else 'No'}")
-            output.append(f"  • Topic: {work.get('primary_topic', 'N/A')}")
-            
-            # Ключевые слова
-            if work.get('matched_keywords'):
-                keywords = work.get('matched_keywords', [])
-                output.append(f"KEYWORDS: {', '.join(keywords[:5])}")
-                if len(keywords) > 5:
-                    output.append(f"          + {len(keywords) - 5} more keywords")
-            
-            # DOI и ссылка
-            doi = work.get('doi', '')
-            doi_url = work.get('doi_url', '')
-            
-            if doi:
-                output.append(f"DOI: {doi}")
-                if doi_url:
-                    output.append(f"LINK: {doi_url}")
-            
-            # Разделитель между статьями
-            if i < len(data):
-                output.append("")
-                output.append("─" * 60)
-                output.append("")
+        output.append(f"PAPER #{i:03d}")
+        output.append(f"Relevance: {relevance_score}/10 {relevance_stars}")
+        output.append("-" * 40)
+        
+        # Заголовок
+        title = work.get('title', 'No title available')
+        output.append(f"TITLE: {title}")
+        
+        # Авторы
+        authors = work.get('authors', [])
+        if authors:
+            output.append(f"AUTHORS: {', '.join(authors[:3])}")
+            if len(authors) > 3:
+                output.append(f"         + {len(authors) - 3} more authors")
+        
+        # Основные метрики
+        citations = work.get('cited_by_count', 0)
+        year = work.get('publication_year', 'N/A')
+        journal = work.get('journal_name', 'N/A')
+        
+        output.append("METRICS:")
+        output.append(f"  • Citations: {citations}")
+        output.append(f"  • Year: {year}")
+        output.append(f"  • Journal/Conference: {journal}")
+        output.append(f"  • Open Access: {'Yes' if work.get('is_oa') else 'No'}")
+        
+        # Ключевые слова
+        if work.get('matched_keywords'):
+            keywords = work.get('matched_keywords', [])
+            output.append(f"KEYWORDS: {', '.join(keywords[:5])}")
+            if len(keywords) > 5:
+                output.append(f"          + {len(keywords) - 5} more keywords")
+        
+        # DOI и ссылка
+        doi = work.get('doi', '')
+        doi_url = work.get('doi_url', '')
+        
+        if doi:
+            output.append(f"DOI: {doi}")
+            if doi_url:
+                output.append(f"LINK: {doi_url}")
+        
+        # Абстракт (если есть и короткий)
+        abstract = work.get('abstract', '')
+        if abstract and len(abstract) < 300:
+            output.append("ABSTRACT:")
+            # Форматируем абстракт с переносами строк
+            words = abstract.split()
+            lines = []
+            current_line = ""
+            for word in words:
+                if len(current_line) + len(word) + 1 <= 70:
+                    current_line += " " + word if current_line else word
+                else:
+                    lines.append("  " + current_line)
+                    current_line = word
+            if current_line:
+                lines.append("  " + current_line)
+            output.extend(lines)
+        
+        # Разделитель между статьями
+        if i < len(data):
+            output.append("")
+            output.append("─" * 60)
+            output.append("")
+    
+    output.append("=" * 80)
+    output.append("")
     
     # ========== СТАТИСТИЧЕСКАЯ СВОДКА ==========
     if len(data) > 5:
-        output.append("=" * 80)
         output.append("STATISTICAL SUMMARY")
         output.append("=" * 80)
         output.append("")
@@ -2185,6 +1661,8 @@ def generate_txt(data: List[dict], topic_name: str, input_dois: List[str] = None
             output.append("CITATION ANALYSIS:")
             output.append(f"  Average: {np.mean(citations_list):.2f}")
             output.append(f"  Median: {np.median(citations_list):.2f}")
+            output.append(f"  Minimum: {min(citations_list)}")
+            output.append(f"  Maximum: {max(citations_list)}")
             output.append(f"  Standard Deviation: {np.std(citations_list):.2f}")
             output.append("")
             
@@ -2205,6 +1683,7 @@ def generate_txt(data: List[dict], topic_name: str, input_dois: List[str] = None
         if relevance_list:
             output.append("RELEVANCE SCORE ANALYSIS:")
             output.append(f"  Average: {np.mean(relevance_list):.2f}/10")
+            output.append(f"  Median: {np.median(relevance_list):.2f}/10")
             
             # Распределение по релевантности
             relevance_counts = {score: 0 for score in range(1, 11)}
@@ -2221,64 +1700,80 @@ def generate_txt(data: List[dict], topic_name: str, input_dois: List[str] = None
                     output.append(f"    Score {score:2d}/10 {stars}: {count:3d} papers ({percentage:5.1f}%)")
             output.append("")
     
-    # ========== ИНФОРМАЦИЯ ДЛЯ ВОСПРОИЗВЕДЕНИЯ ==========
-    output.append("=" * 80)
-    output.append("HOW TO REPRODUCE THIS ANALYSIS")
-    output.append("=" * 80)
-    output.append("")
-    
-    output.append("To reproduce this analysis in CTA Article Recommender Pro:")
-    output.append("")
-    output.append("1. Go to Step 1: Data Input")
-    output.append(f"2. Enter these {len(input_dois) if input_dois else 0} DOI(s):")
-    output.append("")
-    
-    if input_dois:
-        for doi in input_dois[:10]:  # Показываем первые 10
-            output.append(f"   • {doi}")
+    # ========== ТОП РЕКОМЕНДАЦИЙ ==========
+    if len(data) > 10:
+        output.append("TOP RECOMMENDATIONS")
+        output.append("=" * 80)
+        output.append("")
         
-        if len(input_dois) > 10:
-            output.append(f"   • ... and {len(input_dois) - 10} more")
-    
-    output.append("")
-    output.append("3. Proceed through analysis steps")
-    output.append("4. In Step 3, apply these filters:")
-    output.append("")
-    
-    if filter_params:
-        if 'years' in filter_params:
-            years = filter_params.get('years', [])
-            output.append(f"   • Publication Years: {', '.join(map(str, years))}")
+        # Сортируем по релевантности, затем по годам (новые первыми)
+        sorted_data = sorted(data, key=lambda x: (-x.get('relevance_score', 0), 
+                                                  -x.get('publication_year', 0)))
         
-        if 'citation_ranges' in filter_params:
-            ranges = filter_params.get('citation_ranges', [])
-            if ranges:
-                range_strs = []
-                for start, end in ranges:
-                    if start == end:
-                        range_strs.append(str(start))
-                    else:
-                        range_strs.append(f"{start}-{end}")
-                output.append(f"   • Citation Ranges: {', '.join(range_strs)}")
+        output.append("Highest Relevance & Most Recent:")
+        for i, work in enumerate(sorted_data[:5], 1):
+            title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
+            output.append(f"  {i}. {title}")
+            output.append(f"     Year: {work.get('publication_year', 'N/A')}, "
+                         f"Citations: {work.get('cited_by_count', 0)}, "
+                         f"Score: {work.get('relevance_score', 0)}/10")
+        
+        output.append("")
+        output.append("Most Cited (among under-cited):")
+        # Берем статьи с ненулевыми цитированиями
+        cited_papers = [w for w in data if w.get('cited_by_count', 0) > 0]
+        if cited_papers:
+            most_cited = sorted(cited_papers, key=lambda x: -x.get('cited_by_count', 0))
+            for i, work in enumerate(most_cited[:3], 1):
+                title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
+                output.append(f"  {i}. {title}")
+                output.append(f"     Citations: {work.get('cited_by_count', 0)}, "
+                             f"Year: {work.get('publication_year', 'N/A')}")
+        
+        output.append("")
+        output.append("Newest Publications:")
+        recent_papers = sorted(data, key=lambda x: -x.get('publication_year', 0))
+        for i, work in enumerate(recent_papers[:3], 1):
+            title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
+            output.append(f"  {i}. {title}")
+            output.append(f"     Year: {work.get('publication_year', 'N/A')}, "
+                         f"Citations: {work.get('cited_by_count', 0)}")
     
-    output.append("")
+    # ========== ЗАКЛЮЧЕНИЕ ==========
     output.append("=" * 80)
-    output.append("REPORT METADATA")
+    output.append("CONCLUSION")
     output.append("=" * 80)
     output.append("")
     
-    report_id = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12].upper()
-    output.append(f"Report ID: {report_id}")
-    output.append(f"Generated by: CTA Article Recommender Pro")
-    output.append(f"Data source: OpenAlex API")
-    output.append(f"Analysis date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    output.append("")
-    output.append("© CTA - Chemical Technology Acta | https://chimicatechnoacta.ru")
-    output.append("This report is for research purposes only.")
-    output.append("Always verify information with original sources.")
-    output.append("")
-    output.append("End of Report")
-    output.append("=" * 80)
+    conclusions = [
+        f"This analysis identified {len(data)} under-cited papers in '{topic_name}'.",
+        "",
+        "KEY INSIGHTS:",
+        "• These papers may represent emerging research trends",
+        "• Low citation counts don't necessarily indicate low quality",
+        "• Consider these for literature reviews and gap analysis",
+        "• They may contain novel methodologies or cross-disciplinary insights",
+        "",
+        "RECOMMENDED ACTIONS:",
+        "1. Review high-relevance papers for potential citations",
+        "2. Use as starting points for systematic reviews",
+        "3. Identify research gaps and opportunities",
+        "4. Track emerging authors in this field",
+        "",
+        "REPORT METADATA:",
+        f"• Generated by: CTA Article Recommender Pro",
+        f"• Report ID: {hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12].upper()}",
+        f"• Data source: OpenAlex API",
+        f"• Analysis date: {current_date}",
+        "",
+        "© CTA - Chemical Technology Acta | https://chimicatechnoacta.ru",
+        "This report is for research purposes only.",
+        "Always verify information with original sources.",
+        "",
+        "End of Report"
+    ]
+    
+    output.extend(conclusions)
     
     return "\n".join(output)
 
@@ -2661,7 +2156,7 @@ def step_topic_selection():
     create_topic_selection_ui()
 
 def step_results():
-    """Шаг 4: Результаты (полная версия)"""
+    """Шаг 4: Результаты (компактный)"""
     create_back_button()
     
     st.markdown("""
@@ -2671,23 +2166,11 @@ def step_results():
     </div>
     """, unsafe_allow_html=True)
     
-    # Проверяем, что тема выбрана
     if 'selected_topic_id' not in st.session_state:
-        st.error("""
-        ❌ Topic not selected. 
-        
-        Please go back to Step 3 and select a research topic for analysis.
-        """)
-        
-        # Кнопка возврата
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("↩️ Return to Topic Selection", use_container_width=True):
-                st.session_state.current_step = 3
-                st.rerun()
+        st.error("❌ Topic not selected. Please go back to Step 3.")
         return
     
-    # Получаем фильтры из сессии
+    # Получаем фильтры
     selected_years = st.session_state.get('selected_years', [])
     if not selected_years:
         current_year = datetime.now().year
@@ -2699,124 +2182,31 @@ def step_results():
         selected_ranges = [(0, 2)]
         st.session_state.selected_ranges = selected_ranges
     
-    # Параметры для экспорта
-    topic_name = st.session_state.get('selected_topic', 'Results')
-    input_dois = st.session_state.get('dois', [])
-    
-    filter_params = {
-        'topic': topic_name,
-        'years': selected_years,
-        'citation_ranges': selected_ranges,
-        'max_works': 2000,
-        'top_n': 100
-    }
-    
-    # Показываем информацию о выбранных фильтрах
-    st.markdown("""
-    <div class="info-message">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <strong>🎯 Analysis Parameters</strong><br>
-                <span style="font-size: 0.85rem;">
-                    Topic: <strong>{}</strong> | 
-                    Years: <strong>{}</strong> | 
-                    Citation ranges: <strong>{}</strong>
-                </span>
-            </div>
-            <span style="background: #667eea; color: white; padding: 4px 12px; border-radius: 12px; font-size: 0.8rem;">
-                {} input DOI(s)
-            </span>
-        </div>
-    </div>
-    """.format(
-        topic_name,
-        ', '.join(map(str, selected_years)),
-        format_citation_ranges(selected_ranges),
-        len(input_dois)
-    ), unsafe_allow_html=True)
-    
     # Анализ работ по теме (только если еще не анализировали или фильтры изменились)
-    cache_key = f"results_{st.session_state.selected_topic_id}_{str(selected_years)}_{str(selected_ranges)}"
-    
-    if 'relevant_works' not in st.session_state or 'current_cache_key' not in st.session_state or st.session_state.current_cache_key != cache_key:
-        with st.spinner("🔍 Searching for fresh papers..."):
-            # Индикатор прогресса
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
+    if 'relevant_works' not in st.session_state:
+        with st.spinner("Searching for fresh papers..."):
             # Получаем топ-10 ключевых слов
             top_keywords = [kw for kw, _ in st.session_state.keyword_counter.most_common(10)]
             
             # Сохраняем ключевые слова в сессии
             st.session_state.top_keywords = top_keywords
             
-            # Обновляем статус
-            status_text.text(f"Step 1/3: Fetching works for topic '{topic_name}'...")
-            progress_bar.progress(0.2)
-            
             # Выполняем анализ
-            try:
-                relevant_works = analyze_works_for_topic(
-                    st.session_state.selected_topic_id,
-                    top_keywords,
-                    max_citations=10,
-                    max_works=2000,
-                    top_n=100,
-                    year_filter=selected_years,
-                    citation_ranges=selected_ranges
-                )
-                
-                # Обновляем статус
-                status_text.text(f"Step 2/3: Analyzing {len(relevant_works)} papers...")
-                progress_bar.progress(0.6)
-                
-                # Добавляем дополнительную информацию к работам
-                for work in relevant_works:
-                    # Вычисляем возраст статьи (в годах)
-                    pub_year = work.get('publication_year', 0)
-                    current_year = datetime.now().year
-                    if pub_year > 1900:
-                        work['paper_age'] = current_year - pub_year
-                    else:
-                        work['paper_age'] = 'Unknown'
-                    
-                    # Определяем категорию цитирований
-                    citations = work.get('cited_by_count', 0)
-                    if citations == 0:
-                        work['citation_category'] = 'Zero'
-                    elif citations <= 3:
-                        work['citation_category'] = 'Very Low (1-3)'
-                    elif citations <= 10:
-                        work['citation_category'] = 'Low (4-10)'
-                    else:
-                        work['citation_category'] = 'Medium (11-50)'
-                
-                # Обновляем статус
-                status_text.text(f"Step 3/3: Finalizing results...")
-                progress_bar.progress(0.9)
-                
-                # Сохраняем результаты в сессии
-                st.session_state.relevant_works = relevant_works
-                st.session_state.current_cache_key = cache_key
-                
-                # Завершаем прогресс
-                progress_bar.progress(1.0)
-                status_text.text(f"✅ Analysis complete! Found {len(relevant_works)} papers.")
-                
-                # Небольшая пауза перед скрытием прогресса
-                time.sleep(0.5)
-                progress_bar.empty()
-                status_text.empty()
-                
-            except Exception as e:
-                st.error(f"❌ Error during analysis: {str(e)}")
-                st.session_state.relevant_works = []
-                progress_bar.empty()
-                status_text.empty()
+            relevant_works = analyze_works_for_topic(
+                st.session_state.selected_topic_id,
+                top_keywords,
+                max_citations=10,
+                max_works=2000,
+                top_n=100,
+                year_filter=selected_years,
+                citation_ranges=selected_ranges
+            )
+        
+        st.session_state.relevant_works = relevant_works
     else:
         relevant_works = st.session_state.relevant_works
     
-    # Статистика в метриках
+    # Статистика
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         create_metric_card_compact("Papers Found", len(relevant_works), "📄")
@@ -2834,48 +2224,14 @@ def step_results():
         recent_count = sum(1 for w in relevant_works if w.get('publication_year', 0) >= current_year - 2)
         create_metric_card_compact("Recent (≤2y)", recent_count, "🕒")
     
-    # Дополнительная статистика (если есть результаты)
-    if relevant_works:
-        # Рассчитываем дополнительные метрики
-        zero_citation_papers = sum(1 for w in relevant_works if w.get('cited_by_count', 0) == 0)
-        low_citation_papers = sum(1 for w in relevant_works if 1 <= w.get('cited_by_count', 0) <= 3)
-        
-        # Показываем распределение цитирований
-        st.markdown("""
-        <div style="margin: 15px 0; padding: 12px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
-                    border-radius: 8px; border-left: 4px solid #667eea;">
-            <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
-                <div><strong>📊 Citation Distribution:</strong></div>
-                <div style="color: #666;">Total: {}</div>
-            </div>
-            <div style="display: flex; margin-top: 8px; gap: 5px;">
-                <span style="flex: {}; background: #4CAF50; height: 8px; border-radius: 4px;" 
-                      title="0 citations: {} papers"></span>
-                <span style="flex: {}; background: #8BC34A; height: 8px; border-radius: 4px;" 
-                      title="1-3 citations: {} papers"></span>
-                <span style="flex: {}; background: #FFC107; height: 8px; border-radius: 4px;" 
-                      title="4+ citations: {} papers"></span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-top: 5px; color: #666;">
-                <span>0 citations: {} ({:.1f}%)</span>
-                <span>1-3: {} ({:.1f}%)</span>
-                <span>4+: {} ({:.1f}%)</span>
-            </div>
-        </div>
-        """.format(
-            len(relevant_works),
-            zero_citation_papers / len(relevant_works),
-            zero_citation_papers,
-            low_citation_papers / len(relevant_works),
-            low_citation_papers,
-            (len(relevant_works) - zero_citation_papers - low_citation_papers) / len(relevant_works),
-            zero_citation_papers, (zero_citation_papers/len(relevant_works))*100,
-            low_citation_papers, (low_citation_papers/len(relevant_works))*100,
-            len(relevant_works) - zero_citation_papers - low_citation_papers,
-            ((len(relevant_works) - zero_citation_papers - low_citation_papers)/len(relevant_works))*100
-        ), unsafe_allow_html=True)
+    # Показываем активные фильтры
+    st.markdown(f"""
+    <div style="margin: 10px 0; font-size: 0.85rem; color: #666;">
+        <strong>Active filters:</strong> Years: {', '.join(map(str, selected_years))} | 
+        Citation ranges: {format_citation_ranges(selected_ranges)}
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Сообщение, если нет результатов
     if not relevant_works:
         st.warning("""
         <div class="warning-message">
@@ -2884,423 +2240,118 @@ def step_results():
             1. Current year selected with high citation threshold (papers might not have enough citations yet)<br>
             2. Very specific citation range selected<br>
             3. Topic has limited publications in selected years<br>
-            4. Network issues or API limitations<br>
             <br>
-            <strong>Suggestions:</strong><br>
-            • Try adjusting your filters in Step 3<br>
-            • Broaden the citation ranges<br>
-            • Include more publication years<br>
-            • Check your internet connection
+            Try adjusting your filters in Step 3.
         </div>
         """, unsafe_allow_html=True)
+    else:
+        # Результаты в виде карточек
+        st.markdown("<h4>🎯 Recommended Papers:</h4>", unsafe_allow_html=True)
         
-        # Кнопки действий при отсутствии результатов
-        col1, col2, col3 = st.columns(3)
+        for idx, work in enumerate(relevant_works[:10], 1):
+            create_result_card_compact(work, idx)
+        
+        # Таблица для детального просмотра
+        st.markdown("<h4>📋 Detailed View:</h4>", unsafe_allow_html=True)
+        
+        display_data = []
+        for i, work in enumerate(relevant_works, 1):
+            doi_url = work.get('doi_url', '')
+            title = work.get('title', '')
+            
+            display_data.append({
+                '#': i,
+                'Title': title[:60] + '...' if len(title) > 60 else title,
+                'Citations': work.get('cited_by_count', 0),
+                'Relevance': work.get('relevance_score', 0),
+                'Year': work.get('publication_year', ''),
+                'Journal': work.get('journal_name', '')[:20],
+                'DOI': doi_url if doi_url else 'N/A',  # Исправлено: убираем markdown
+                'OA': '✅' if work.get('is_oa') else '❌',
+                'Authors': ', '.join(work.get('authors', [])[:2])
+            })
+        
+        df = pd.DataFrame(display_data)
+        
+        # Используем column_config без LinkColumn для чистых URL
+        st.dataframe(
+            df,
+            use_container_width=True,
+            height=300,
+            column_config={
+                "DOI": st.column_config.TextColumn(
+                    "DOI",
+                    help="Click to copy or open in browser",
+                    width="medium"
+                ),
+                "Relevance": st.column_config.ProgressColumn(
+                    "Relevance",
+                    help="Relevance score (higher is better)",
+                    format="%d",
+                    min_value=1,
+                    max_value=10
+                )
+            }
+        )
+        
+        # Экспорт в разные форматы
+        st.markdown("<h4>📥 Export Results:</h4>", unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
         with col1:
-            if st.button("↩️ Adjust Filters", use_container_width=True):
-                st.session_state.current_step = 3
-                st.rerun()
+            csv = generate_csv(relevant_works)
+            st.download_button(
+                label="📊 CSV",
+                data=csv,
+                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        
         with col2:
-            if st.button("🔄 Retry Analysis", use_container_width=True):
-                # Сбрасываем кэш результатов
-                if 'relevant_works' in st.session_state:
-                    del st.session_state['relevant_works']
-                if 'current_cache_key' in st.session_state:
-                    del st.session_state['current_cache_key']
-                st.rerun()
+            excel_data = generate_excel(relevant_works)
+            st.download_button(
+                label="📈 Excel",
+                data=excel_data,
+                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        
         with col3:
-            if st.button("🏠 Start Over", use_container_width=True):
-                # Полный сброс
-                for key in ['relevant_works', 'current_cache_key', 'selected_topic', 
-                          'selected_topic_id', 'selected_years', 'selected_ranges', 
-                          'top_keywords', 'works_data', 'topic_counter', 'keyword_counter',
+            txt_data = generate_txt(relevant_works, st.session_state.get('selected_topic', 'Results'))
+            st.download_button(
+                label="📝 TXT",
+                data=txt_data,
+                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+        
+        with col4:
+            pdf_data = generate_pdf(relevant_works[:50], st.session_state.get('selected_topic', 'Results'))
+            st.download_button(
+                label="📄 PDF",
+                data=pdf_data,
+                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        
+        # Кнопка нового анализа
+        st.markdown("---")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🔄 Start New Analysis", use_container_width=True):
+                for key in ['relevant_works', 'selected_topic', 'selected_topic_id', 
+                          'selected_years', 'selected_ranges', 'top_keywords',
+                          'works_data', 'topic_counter', 'keyword_counter',
                           'successful', 'failed', 'dois']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.session_state.current_step = 1
                 st.rerun()
-        
-        return
-    
-    # ========== РЕЗУЛЬТАТЫ В ВИДЕ КАРТОЧЕК ==========
-    
-    st.markdown("<h4 style='margin-top: 20px;'>🎯 Recommended Papers:</h4>", unsafe_allow_html=True)
-    
-    # Фильтр для сортировки результатов
-    sort_options = {
-        "Relevance Score (High to Low)": "relevance",
-        "Publication Year (Newest First)": "year_desc",
-        "Publication Year (Oldest First)": "year_asc",
-        "Citation Count (Low to High)": "citations_asc",
-        "Citation Count (High to Low)": "citations_desc",
-        "Title (A-Z)": "title_asc"
-    }
-    
-    sort_by = st.selectbox(
-        "Sort by:",
-        options=list(sort_options.keys()),
-        index=0,
-        key="results_sort"
-    )
-    
-    # Сортируем результаты
-    sorted_works = relevant_works.copy()
-    if sort_options[sort_by] == "relevance":
-        sorted_works.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
-    elif sort_options[sort_by] == "year_desc":
-        sorted_works.sort(key=lambda x: x.get('publication_year', 0), reverse=True)
-    elif sort_options[sort_by] == "year_asc":
-        sorted_works.sort(key=lambda x: x.get('publication_year', 0))
-    elif sort_options[sort_by] == "citations_asc":
-        sorted_works.sort(key=lambda x: x.get('cited_by_count', 0))
-    elif sort_options[sort_by] == "citations_desc":
-        sorted_works.sort(key=lambda x: x.get('cited_by_count', 0), reverse=True)
-    elif sort_options[sort_by] == "title_asc":
-        sorted_works.sort(key=lambda x: x.get('title', '').lower())
-    
-    # Показываем первые 10 результатов в виде карточек
-    for idx, work in enumerate(sorted_works[:10], 1):
-        create_result_card_compact(work, idx)
-    
-    # Показать больше результатов при нажатии кнопки
-    if len(sorted_works) > 10:
-        with st.expander(f"📖 Show all {len(sorted_works)} papers", expanded=False):
-            for idx, work in enumerate(sorted_works[10:], 11):
-                create_result_card_compact(work, idx)
-    
-    # ========== ТАБЛИЦА ДЛЯ ДЕТАЛЬНОГО ПРОСМОТРА ==========
-    
-    st.markdown("<h4 style='margin-top: 30px;'>📋 Detailed View:</h4>", unsafe_allow_html=True)
-    
-    # Подготовка данных для таблицы
-    display_data = []
-    for i, work in enumerate(sorted_works, 1):
-        doi_url = work.get('doi_url', '')
-        title = work.get('title', '')
-        
-        # Создаем кликабельную ссылку
-        if doi_url:
-            doi_display = doi_url
-        else:
-            doi_display = work.get('doi', 'N/A')
-        
-        display_data.append({
-            '#': i,
-            'Title': title[:80] + '...' if len(title) > 80 else title,
-            'Citations': work.get('cited_by_count', 0),
-            'Relevance': work.get('relevance_score', 0),
-            'Year': work.get('publication_year', ''),
-            'Journal': work.get('journal_name', '')[:25] + '...' if len(work.get('journal_name', '')) > 25 else work.get('journal_name', ''),
-            'DOI': doi_display,
-            'OA': '✅' if work.get('is_oa') else '❌',
-            'Authors': ', '.join(work.get('authors', [])[:2]) + (' et al.' if len(work.get('authors', [])) > 2 else '')
-        })
-    
-    df = pd.DataFrame(display_data)
-    
-    # Показываем таблицу с настройками
-    st.dataframe(
-        df,
-        use_container_width=True,
-        height=400,
-        column_config={
-            "Relevance": st.column_config.ProgressColumn(
-                "Relevance",
-                help="Relevance score (higher is better)",
-                format="%d",
-                min_value=1,
-                max_value=10,
-                width="small"
-            ),
-            "Citations": st.column_config.NumberColumn(
-                "Citations",
-                help="Number of citations",
-                format="%d",
-                width="small"
-            ),
-            "Year": st.column_config.NumberColumn(
-                "Year",
-                help="Publication year",
-                format="%d",
-                width="small"
-            ),
-            "OA": st.column_config.TextColumn(
-                "OA",
-                help="Open Access",
-                width="small"
-            ),
-            "DOI": st.column_config.LinkColumn(
-                "DOI",
-                help="Click to open article",
-                display_text="🔗 Open",
-                width="small"
-            )
-        }
-    )
-    
-    # ========== ГРАФИКИ И ВИЗУАЛИЗАЦИИ ==========
-    
-    if len(relevant_works) > 5:
-        st.markdown("<h4 style='margin-top: 30px;'>📈 Visualizations:</h4>", unsafe_allow_html=True)
-        
-        tab1, tab2, tab3 = st.tabs(["📅 By Year", "📊 By Citations", "🏷️ By Topic"])
-        
-        with tab1:
-            # График по годам
-            if relevant_works:
-                years = [w.get('publication_year', 0) for w in relevant_works if w.get('publication_year', 0) > 1900]
-                if years:
-                    year_counts = {}
-                    for year in years:
-                        year_counts[year] = year_counts.get(year, 0) + 1
-                    
-                    # Сортируем по годам
-                    sorted_years = sorted(year_counts.items())
-                    
-                    # Создаем график
-                    fig_years = go.Figure(data=[
-                        go.Bar(
-                            x=[str(y) for y, _ in sorted_years],
-                            y=[c for _, c in sorted_years],
-                            marker_color='#667eea',
-                            text=[c for _, c in sorted_years],
-                            textposition='auto',
-                        )
-                    ])
-                    
-                    fig_years.update_layout(
-                        title="Publications by Year",
-                        xaxis_title="Year",
-                        yaxis_title="Number of Papers",
-                        template="plotly_white",
-                        height=300
-                    )
-                    
-                    st.plotly_chart(fig_years, use_container_width=True)
-                else:
-                    st.info("No year data available for visualization")
-        
-        with tab2:
-            # График по цитированиям
-            if relevant_works:
-                citations = [w.get('cited_by_count', 0) for w in relevant_works]
-                
-                # Группируем по диапазонам
-                ranges = [0, 1, 2, 3, 5, 10]
-                range_labels = ['0', '1', '2', '3-4', '5-9', '10+']
-                range_counts = [0] * (len(ranges))
-                
-                for cit in citations:
-                    for i, limit in enumerate(ranges):
-                        if cit <= limit or (i == len(ranges)-1 and cit >= limit):
-                            range_counts[i] += 1
-                            break
-                
-                # Убираем нулевые значения
-                filtered_labels = []
-                filtered_counts = []
-                for label, count in zip(range_labels, range_counts):
-                    if count > 0:
-                        filtered_labels.append(label)
-                        filtered_counts.append(count)
-                
-                if filtered_counts:
-                    fig_citations = go.Figure(data=[
-                        go.Pie(
-                            labels=filtered_labels,
-                            values=filtered_counts,
-                            hole=.3,
-                            marker_colors=['#4CAF50', '#8BC34A', '#CDDC39', '#FFC107', '#FF9800', '#F44336']
-                        )
-                    ])
-                    
-                    fig_citations.update_layout(
-                        title="Citation Distribution",
-                        template="plotly_white",
-                        height=300
-                    )
-                    
-                    st.plotly_chart(fig_citations, use_container_width=True)
-                else:
-                    st.info("No citation data available for visualization")
-        
-        with tab3:
-            # График по темам (если есть данные)
-            topics = [w.get('primary_topic', '') for w in relevant_works if w.get('primary_topic')]
-            if topics:
-                topic_counts = {}
-                for topic in topics:
-                    topic_counts[topic] = topic_counts.get(topic, 0) + 1
-                
-                # Берем топ-10 тем
-                top_topics = sorted(topic_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-                
-                if top_topics:
-                    fig_topics = go.Figure(data=[
-                        go.Bar(
-                            x=[count for _, count in top_topics],
-                            y=[topic[:30] + '...' if len(topic) > 30 else topic for topic, _ in top_topics],
-                            orientation='h',
-                            marker_color='#764ba2',
-                        )
-                    ])
-                    
-                    fig_topics.update_layout(
-                        title="Top 10 Research Topics",
-                        xaxis_title="Number of Papers",
-                        yaxis_title="Topic",
-                        template="plotly_white",
-                        height=400
-                    )
-                    
-                    st.plotly_chart(fig_topics, use_container_width=True)
-                else:
-                    st.info("No topic data available for visualization")
-            else:
-                st.info("No topic data available for visualization")
-    
-    # ========== ЭКСПОРТ РЕЗУЛЬТАТОВ ==========
-    
-    st.markdown("<h4 style='margin-top: 30px;'>📥 Export Results:</h4>", unsafe_allow_html=True)
-    
-    # Информация о экспортируемых данных
-    st.markdown(f"""
-    <div class="info-message" style="margin-bottom: 15px;">
-        <div>
-            <strong>📋 Export Information</strong><br>
-            <span style="font-size: 0.85rem;">
-                • Exporting <strong>{len(relevant_works)}</strong> papers<br>
-                • Includes <strong>{len(input_dois)}</strong> original input DOI(s)<br>
-                • Filter parameters preserved for reproducibility<br>
-                • Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            </span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Кнопки экспорта
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        csv = generate_csv(relevant_works, input_dois, filter_params)
-        st.download_button(
-            label="📊 CSV",
-            data=csv,
-            file_name=f"under_cited_papers_{topic_name.replace(' ', '_').replace('/', '_')[:50]}.csv",
-            mime="text/csv",
-            use_container_width=True,
-            help="Download as CSV with metadata and filter parameters"
-        )
-    
-    with col2:
-        excel_data = generate_excel(relevant_works, input_dois, filter_params)
-        st.download_button(
-            label="📈 Excel",
-            data=excel_data,
-            file_name=f"under_cited_papers_{topic_name.replace(' ', '_').replace('/', '_')[:50]}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            help="Download as Excel with multiple sheets and formatting"
-        )
-    
-    with col3:
-        txt_data = generate_txt(relevant_works, topic_name, input_dois, filter_params)
-        st.download_button(
-            label="📝 TXT",
-            data=txt_data,
-            file_name=f"under_cited_papers_{topic_name.replace(' ', '_').replace('/', '_')[:50]}.txt",
-            mime="text/plain",
-            use_container_width=True,
-            help="Download as text file with detailed formatting"
-        )
-    
-    with col4:
-        pdf_data = generate_pdf(relevant_works[:50], topic_name, input_dois, filter_params)
-        st.download_button(
-            label="📄 PDF",
-            data=pdf_data,
-            file_name=f"under_cited_papers_{topic_name.replace(' ', '_').replace('/', '_')[:50]}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            help="Download as PDF report with visualizations"
-        )
-    
-    # ========== ДОПОЛНИТЕЛЬНЫЕ ОПЦИИ ==========
-    
-    st.markdown("---")
-    
-    # Опции для дальнейших действий
-    st.markdown("<h4>⚙️ Additional Options:</h4>", unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        if st.button("🔄 Re-run with Same Filters", use_container_width=True, help="Re-run analysis with current filters"):
-            if 'relevant_works' in st.session_state:
-                del st.session_state['relevant_works']
-            if 'current_cache_key' in st.session_state:
-                del st.session_state['current_cache_key']
-            st.rerun()
-    
-    with col2:
-        if st.button("⚙️ Adjust Filters", use_container_width=True, help="Go back to adjust filters"):
-            st.session_state.current_step = 3
-            st.rerun()
-    
-    with col3:
-        if st.button("🔍 New Topic Analysis", use_container_width=True, help="Select different topic"):
-            # Удаляем только связанные с результатами данные
-            for key in ['relevant_works', 'current_cache_key', 'selected_topic', 
-                       'selected_topic_id', 'selected_years', 'selected_ranges', 
-                       'top_keywords']:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.session_state.current_step = 3
-            st.rerun()
-    
-    with col4:
-        if st.button("🏠 Start New Analysis", use_container_width=True, help="Start completely new analysis"):
-            # Полный сброс сессии
-            for key in list(st.session_state.keys()):
-                if key != 'current_step':
-                    del st.session_state[key]
-            st.session_state.current_step = 1
-            st.rerun()
-    
-    # ========== ИНФОРМАЦИЯ О ВОСПРОИЗВОДИМОСТИ ==========
-    
-    st.markdown("---")
-    
-    st.markdown("""
-    <div class="info-message">
-        <strong>🔍 Reproducibility Information:</strong><br>
-        <span style="font-size: 0.85rem;">
-        This analysis can be reproduced using the exported files. All export formats include:
-        </span>
-        <ul style="font-size: 0.85rem; margin: 5px 0 0 20px;">
-            <li>Original input DOI(s) used for analysis</li>
-            <li>Exact filter parameters applied</li>
-            <li>Analysis timestamp and report ID</li>
-            <li>Complete list of found papers with metadata</li>
-        </ul>
-        <span style="font-size: 0.85rem;">
-        To reproduce: Import the same DOI(s) and apply the same filters in Step 3.
-        </span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Футер
-    st.markdown("---")
-    st.markdown("""
-    <div style="text-align: center; color: #888; font-size: 0.8rem; margin-top: 1rem; padding: 10px;">
-        <p>Analysis completed. © CTA Article Recommender Pro | https://chimicatechnoacta.ru</p>
-        <p>Report generated on {} | Found {} papers | Topic: {}</p>
-    </div>
-    """.format(
-        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        len(relevant_works),
-        topic_name[:50] + '...' if len(topic_name) > 50 else topic_name
-    ), unsafe_allow_html=True)
 
 # ============================================================================
 # ГЛАВНАЯ ФУНКЦИЯ
@@ -3347,13 +2398,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
