@@ -1191,6 +1191,15 @@ def create_topic_selection_ui():
                         use_container_width=True,
                         type="primary" if is_selected else "secondary"):
                 st.session_state.selected_topic = topic
+                
+                # Находим ID темы из данных
+                for work in st.session_state.works_data:
+                    if work.get('primary_topic') == topic:
+                        topic_id = work.get('topic_id')
+                        if topic_id:
+                            st.session_state.selected_topic_id = topic_id
+                            break
+                
                 st.rerun()
     
     # Фильтры для анализа (появляются после выбора темы)
@@ -1612,3 +1621,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
