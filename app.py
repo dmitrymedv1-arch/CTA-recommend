@@ -945,7 +945,16 @@ def create_result_card(work: dict, index: int):
     doi_url = work.get('doi_url', '')
     title = work.get('title', 'No title')
     
-    st.markdown(f"""
+    # Формируем HTML для ключевых слов
+    keywords_html = ''
+    if work.get('matched_keywords'):
+        keywords = work.get('matched_keywords', [])[:5]
+        keywords_html = '<div style="margin: 10px 0;">'
+        for kw in keywords:
+            keywords_html += f'<span style="background: #f0f4ff; padding: 2px 8px; margin: 2px; border-radius: 12px; font-size: 0.8rem; display: inline-block;">{kw}</span>'
+        keywords_html += '</div>'
+    
+    html_content = f"""
     <div class="result-card">
         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
             <div style="display: flex; align-items: center;">
@@ -964,11 +973,7 @@ def create_result_card(work: dict, index: int):
             <span>👥 {authors if authors else 'Unknown authors'}</span>
         </div>
         
-        <div style="margin: 10px 0;">
-            {'<span style="background: #f0f4ff; padding: 2px 8px; margin: 2px; border-radius: 12px; font-size: 0.8rem; display: inline-block;">' + 
-             '</span><span style="background: #f0f4ff; padding: 2px 8px; margin: 2px; border-radius: 12px; font-size: 0.8rem; display: inline-block;">'.join(work.get('matched_keywords', [])[:5]) + 
-             '</span>' if work.get('matched_keywords') else ''}
-        </div>
+        {keywords_html}
         
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
             <div>
@@ -979,7 +984,10 @@ def create_result_card(work: dict, index: int):
             </div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """
+    
+    # Вот ключевое изменение - используем st.markdown с unsafe_allow_html=True
+    st.markdown(html_content, unsafe_allow_html=True)
 
 def create_filters_ui() -> Dict:
     """Создание интерфейса фильтров"""
@@ -1605,3 +1613,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
