@@ -2662,7 +2662,7 @@ def step_topic_selection():
     create_topic_selection_ui()
 
 def step_results():
-    """Шаг 4: Результаты (компактный)"""
+    """Шаг 4: Результаты (полная версия)"""
     create_back_button()
     
     st.markdown("""
@@ -2672,11 +2672,23 @@ def step_results():
     </div>
     """, unsafe_allow_html=True)
     
+    # Проверяем, что тема выбрана
     if 'selected_topic_id' not in st.session_state:
-        st.error("❌ Topic not selected. Please go back to Step 3.")
+        st.error("""
+        ❌ Topic not selected. 
+        
+        Please go back to Step 3 and select a research topic for analysis.
+        """)
+        
+        # Кнопка возврата
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("↩️ Return to Topic Selection", use_container_width=True):
+                st.session_state.current_step = 3
+                st.rerun()
         return
     
-    # Получаем фильтры
+    # Получаем фильтры из сессии
     selected_years = st.session_state.get('selected_years', [])
     if not selected_years:
         current_year = datetime.now().year
@@ -2688,31 +2700,124 @@ def step_results():
         selected_ranges = [(0, 2)]
         st.session_state.selected_ranges = selected_ranges
     
+    # Параметры для экспорта
+    topic_name = st.session_state.get('selected_topic', 'Results')
+    input_dois = st.session_state.get('dois', [])
+    
+    filter_params = {
+        'topic': topic_name,
+        'years': selected_years,
+        'citation_ranges': selected_ranges,
+        'max_works': 2000,
+        'top_n': 100
+    }
+    
+    # Показываем информацию о выбранных фильтрах
+    st.markdown("""
+    <div class="info-message">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong>🎯 Analysis Parameters</strong><br>
+                <span style="font-size: 0.85rem;">
+                    Topic: <strong>{}</strong> | 
+                    Years: <strong>{}</strong> | 
+                    Citation ranges: <strong>{}</strong>
+                </span>
+            </div>
+            <span style="background: #667eea; color: white; padding: 4px 12px; border-radius: 12px; font-size: 0.8rem;">
+                {} input DOI(s)
+            </span>
+        </div>
+    </div>
+    """.format(
+        topic_name,
+        ', '.join(map(str, selected_years)),
+        format_citation_ranges(selected_ranges),
+        len(input_dois)
+    ), unsafe_allow_html=True)
+    
     # Анализ работ по теме (только если еще не анализировали или фильтры изменились)
-    if 'relevant_works' not in st.session_state:
-        with st.spinner("Searching for fresh papers..."):
+    cache_key = f"results_{st.session_state.selected_topic_id}_{str(selected_years)}_{str(selected_ranges)}"
+    
+    if 'relevant_works' not in st.session_state or 'current_cache_key' not in st.session_state or st.session_state.current_cache_key != cache_key:
+        with st.spinner("🔍 Searching for fresh papers..."):
+            # Индикатор прогресса
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
             # Получаем топ-10 ключевых слов
             top_keywords = [kw for kw, _ in st.session_state.keyword_counter.most_common(10)]
             
             # Сохраняем ключевые слова в сессии
             st.session_state.top_keywords = top_keywords
             
+            # Обновляем статус
+            status_text.text(f"Step 1/3: Fetching works for topic '{topic_name}'...")
+            progress_bar.progress(0.2)
+            
             # Выполняем анализ
-            relevant_works = analyze_works_for_topic(
-                st.session_state.selected_topic_id,
-                top_keywords,
-                max_citations=10,
-                max_works=2000,
-                top_n=100,
-                year_filter=selected_years,
-                citation_ranges=selected_ranges
-            )
-        
-        st.session_state.relevant_works = relevant_works
+            try:
+                relevant_works = analyze_works_for_topic(
+                    st.session_state.selected_topic_id,
+                    top_keywords,
+                    max_citations=10,
+                    max_works=2000,
+                    top_n=100,
+                    year_filter=selected_years,
+                    citation_ranges=selected_ranges
+                )
+                
+                # Обновляем статус
+                status_text.text(f"Step 2/3: Analyzing {len(relevant_works)} papers...")
+                progress_bar.progress(0.6)
+                
+                # Добавляем дополнительную информацию к работам
+                for work in relevant_works:
+                    # Вычисляем возраст статьи (в годах)
+                    pub_year = work.get('publication_year', 0)
+                    current_year = datetime.now().year
+                    if pub_year > 1900:
+                        work['paper_age'] = current_year - pub_year
+                    else:
+                        work['paper_age'] = 'Unknown'
+                    
+                    # Определяем категорию цитирований
+                    citations = work.get('cited_by_count', 0)
+                    if citations == 0:
+                        work['citation_category'] = 'Zero'
+                    elif citations <= 3:
+                        work['citation_category'] = 'Very Low (1-3)'
+                    elif citations <= 10:
+                        work['citation_category'] = 'Low (4-10)'
+                    else:
+                        work['citation_category'] = 'Medium (11-50)'
+                
+                # Обновляем статус
+                status_text.text(f"Step 3/3: Finalizing results...")
+                progress_bar.progress(0.9)
+                
+                # Сохраняем результаты в сессии
+                st.session_state.relevant_works = relevant_works
+                st.session_state.current_cache_key = cache_key
+                
+                # Завершаем прогресс
+                progress_bar.progress(1.0)
+                status_text.text(f"✅ Analysis complete! Found {len(relevant_works)} papers.")
+                
+                # Небольшая пауза перед скрытием прогресса
+                time.sleep(0.5)
+                progress_bar.empty()
+                status_text.empty()
+                
+            except Exception as e:
+                st.error(f"❌ Error during analysis: {str(e)}")
+                st.session_state.relevant_works = []
+                progress_bar.empty()
+                status_text.empty()
     else:
         relevant_works = st.session_state.relevant_works
     
-    # Статистика
+    # Статистика в метриках
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         create_metric_card_compact("Papers Found", len(relevant_works), "📄")
@@ -2730,14 +2835,48 @@ def step_results():
         recent_count = sum(1 for w in relevant_works if w.get('publication_year', 0) >= current_year - 2)
         create_metric_card_compact("Recent (≤2y)", recent_count, "🕒")
     
-    # Показываем активные фильтры
-    st.markdown(f"""
-    <div style="margin: 10px 0; font-size: 0.85rem; color: #666;">
-        <strong>Active filters:</strong> Years: {', '.join(map(str, selected_years))} | 
-        Citation ranges: {format_citation_ranges(selected_ranges)}
-    </div>
-    """, unsafe_allow_html=True)
+    # Дополнительная статистика (если есть результаты)
+    if relevant_works:
+        # Рассчитываем дополнительные метрики
+        zero_citation_papers = sum(1 for w in relevant_works if w.get('cited_by_count', 0) == 0)
+        low_citation_papers = sum(1 for w in relevant_works if 1 <= w.get('cited_by_count', 0) <= 3)
+        
+        # Показываем распределение цитирований
+        st.markdown("""
+        <div style="margin: 15px 0; padding: 12px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+                    border-radius: 8px; border-left: 4px solid #667eea;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+                <div><strong>📊 Citation Distribution:</strong></div>
+                <div style="color: #666;">Total: {}</div>
+            </div>
+            <div style="display: flex; margin-top: 8px; gap: 5px;">
+                <span style="flex: {}; background: #4CAF50; height: 8px; border-radius: 4px;" 
+                      title="0 citations: {} papers"></span>
+                <span style="flex: {}; background: #8BC34A; height: 8px; border-radius: 4px;" 
+                      title="1-3 citations: {} papers"></span>
+                <span style="flex: {}; background: #FFC107; height: 8px; border-radius: 4px;" 
+                      title="4+ citations: {} papers"></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-top: 5px; color: #666;">
+                <span>0 citations: {} ({:.1f}%)</span>
+                <span>1-3: {} ({:.1f}%)</span>
+                <span>4+: {} ({:.1f}%)</span>
+            </div>
+        </div>
+        """.format(
+            len(relevant_works),
+            zero_citation_papers / len(relevant_works),
+            zero_citation_papers,
+            low_citation_papers / len(relevant_works),
+            low_citation_papers,
+            (len(relevant_works) - zero_citation_papers - low_citation_papers) / len(relevant_works),
+            zero_citation_papers, (zero_citation_papers/len(relevant_works))*100,
+            low_citation_papers, (low_citation_papers/len(relevant_works))*100,
+            len(relevant_works) - zero_citation_papers - low_citation_papers,
+            ((len(relevant_works) - zero_citation_papers - low_citation_papers)/len(relevant_works))*100
+        ), unsafe_allow_html=True)
     
+    # Сообщение, если нет результатов
     if not relevant_works:
         st.warning("""
         <div class="warning-message">
@@ -2746,118 +2885,423 @@ def step_results():
             1. Current year selected with high citation threshold (papers might not have enough citations yet)<br>
             2. Very specific citation range selected<br>
             3. Topic has limited publications in selected years<br>
+            4. Network issues or API limitations<br>
             <br>
-            Try adjusting your filters in Step 3.
+            <strong>Suggestions:</strong><br>
+            • Try adjusting your filters in Step 3<br>
+            • Broaden the citation ranges<br>
+            • Include more publication years<br>
+            • Check your internet connection
         </div>
         """, unsafe_allow_html=True)
-    else:
-        # Результаты в виде карточек
-        st.markdown("<h4>🎯 Recommended Papers:</h4>", unsafe_allow_html=True)
         
-        for idx, work in enumerate(relevant_works[:10], 1):
-            create_result_card_compact(work, idx)
-        
-        # Таблица для детального просмотра
-        st.markdown("<h4>📋 Detailed View:</h4>", unsafe_allow_html=True)
-        
-        display_data = []
-        for i, work in enumerate(relevant_works, 1):
-            doi_url = work.get('doi_url', '')
-            title = work.get('title', '')
-            
-            display_data.append({
-                '#': i,
-                'Title': title[:60] + '...' if len(title) > 60 else title,
-                'Citations': work.get('cited_by_count', 0),
-                'Relevance': work.get('relevance_score', 0),
-                'Year': work.get('publication_year', ''),
-                'Journal': work.get('journal_name', '')[:20],
-                'DOI': doi_url if doi_url else 'N/A',  # Исправлено: убираем markdown
-                'OA': '✅' if work.get('is_oa') else '❌',
-                'Authors': ', '.join(work.get('authors', [])[:2])
-            })
-        
-        df = pd.DataFrame(display_data)
-        
-        # Используем column_config без LinkColumn для чистых URL
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=300,
-            column_config={
-                "DOI": st.column_config.TextColumn(
-                    "DOI",
-                    help="Click to copy or open in browser",
-                    width="medium"
-                ),
-                "Relevance": st.column_config.ProgressColumn(
-                    "Relevance",
-                    help="Relevance score (higher is better)",
-                    format="%d",
-                    min_value=1,
-                    max_value=10
-                )
-            }
-        )
-        
-        # Экспорт в разные форматы
-        st.markdown("<h4>📥 Export Results:</h4>", unsafe_allow_html=True)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
+        # Кнопки действий при отсутствии результатов
+        col1, col2, col3 = st.columns(3)
         with col1:
-            csv = generate_csv(relevant_works)
-            st.download_button(
-                label="📊 CSV",
-                data=csv,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-        
+            if st.button("↩️ Adjust Filters", use_container_width=True):
+                st.session_state.current_step = 3
+                st.rerun()
         with col2:
-            excel_data = generate_excel(relevant_works)
-            st.download_button(
-                label="📈 Excel",
-                data=excel_data,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        
+            if st.button("🔄 Retry Analysis", use_container_width=True):
+                # Сбрасываем кэш результатов
+                if 'relevant_works' in st.session_state:
+                    del st.session_state['relevant_works']
+                if 'current_cache_key' in st.session_state:
+                    del st.session_state['current_cache_key']
+                st.rerun()
         with col3:
-            txt_data = generate_txt(relevant_works, st.session_state.get('selected_topic', 'Results'))
-            st.download_button(
-                label="📝 TXT",
-                data=txt_data,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
-        
-        with col4:
-            pdf_data = generate_pdf(relevant_works[:50], st.session_state.get('selected_topic', 'Results'))
-            st.download_button(
-                label="📄 PDF",
-                data=pdf_data,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-        
-        # Кнопка нового анализа
-        st.markdown("---")
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("🔄 Start New Analysis", use_container_width=True):
-                for key in ['relevant_works', 'selected_topic', 'selected_topic_id', 
-                          'selected_years', 'selected_ranges', 'top_keywords',
-                          'works_data', 'topic_counter', 'keyword_counter',
+            if st.button("🏠 Start Over", use_container_width=True):
+                # Полный сброс
+                for key in ['relevant_works', 'current_cache_key', 'selected_topic', 
+                          'selected_topic_id', 'selected_years', 'selected_ranges', 
+                          'top_keywords', 'works_data', 'topic_counter', 'keyword_counter',
                           'successful', 'failed', 'dois']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.session_state.current_step = 1
                 st.rerun()
+        
+        return
+    
+    # ========== РЕЗУЛЬТАТЫ В ВИДЕ КАРТОЧЕК ==========
+    
+    st.markdown("<h4 style='margin-top: 20px;'>🎯 Recommended Papers:</h4>", unsafe_allow_html=True)
+    
+    # Фильтр для сортировки результатов
+    sort_options = {
+        "Relevance Score (High to Low)": "relevance",
+        "Publication Year (Newest First)": "year_desc",
+        "Publication Year (Oldest First)": "year_asc",
+        "Citation Count (Low to High)": "citations_asc",
+        "Citation Count (High to Low)": "citations_desc",
+        "Title (A-Z)": "title_asc"
+    }
+    
+    sort_by = st.selectbox(
+        "Sort by:",
+        options=list(sort_options.keys()),
+        index=0,
+        key="results_sort"
+    )
+    
+    # Сортируем результаты
+    sorted_works = relevant_works.copy()
+    if sort_options[sort_by] == "relevance":
+        sorted_works.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+    elif sort_options[sort_by] == "year_desc":
+        sorted_works.sort(key=lambda x: x.get('publication_year', 0), reverse=True)
+    elif sort_options[sort_by] == "year_asc":
+        sorted_works.sort(key=lambda x: x.get('publication_year', 0))
+    elif sort_options[sort_by] == "citations_asc":
+        sorted_works.sort(key=lambda x: x.get('cited_by_count', 0))
+    elif sort_options[sort_by] == "citations_desc":
+        sorted_works.sort(key=lambda x: x.get('cited_by_count', 0), reverse=True)
+    elif sort_options[sort_by] == "title_asc":
+        sorted_works.sort(key=lambda x: x.get('title', '').lower())
+    
+    # Показываем первые 10 результатов в виде карточек
+    for idx, work in enumerate(sorted_works[:10], 1):
+        create_result_card_compact(work, idx)
+    
+    # Показать больше результатов при нажатии кнопки
+    if len(sorted_works) > 10:
+        with st.expander(f"📖 Show all {len(sorted_works)} papers", expanded=False):
+            for idx, work in enumerate(sorted_works[10:], 11):
+                create_result_card_compact(work, idx)
+    
+    # ========== ТАБЛИЦА ДЛЯ ДЕТАЛЬНОГО ПРОСМОТРА ==========
+    
+    st.markdown("<h4 style='margin-top: 30px;'>📋 Detailed View:</h4>", unsafe_allow_html=True)
+    
+    # Подготовка данных для таблицы
+    display_data = []
+    for i, work in enumerate(sorted_works, 1):
+        doi_url = work.get('doi_url', '')
+        title = work.get('title', '')
+        
+        # Создаем кликабельную ссылку
+        if doi_url:
+            doi_display = doi_url
+        else:
+            doi_display = work.get('doi', 'N/A')
+        
+        display_data.append({
+            '#': i,
+            'Title': title[:80] + '...' if len(title) > 80 else title,
+            'Citations': work.get('cited_by_count', 0),
+            'Relevance': work.get('relevance_score', 0),
+            'Year': work.get('publication_year', ''),
+            'Journal': work.get('journal_name', '')[:25] + '...' if len(work.get('journal_name', '')) > 25 else work.get('journal_name', ''),
+            'DOI': doi_display,
+            'OA': '✅' if work.get('is_oa') else '❌',
+            'Authors': ', '.join(work.get('authors', [])[:2]) + (' et al.' if len(work.get('authors', [])) > 2 else '')
+        })
+    
+    df = pd.DataFrame(display_data)
+    
+    # Показываем таблицу с настройками
+    st.dataframe(
+        df,
+        use_container_width=True,
+        height=400,
+        column_config={
+            "Relevance": st.column_config.ProgressColumn(
+                "Relevance",
+                help="Relevance score (higher is better)",
+                format="%d",
+                min_value=1,
+                max_value=10,
+                width="small"
+            ),
+            "Citations": st.column_config.NumberColumn(
+                "Citations",
+                help="Number of citations",
+                format="%d",
+                width="small"
+            ),
+            "Year": st.column_config.NumberColumn(
+                "Year",
+                help="Publication year",
+                format="%d",
+                width="small"
+            ),
+            "OA": st.column_config.TextColumn(
+                "OA",
+                help="Open Access",
+                width="small"
+            ),
+            "DOI": st.column_config.LinkColumn(
+                "DOI",
+                help="Click to open article",
+                display_text="🔗 Open",
+                width="small"
+            )
+        }
+    )
+    
+    # ========== ГРАФИКИ И ВИЗУАЛИЗАЦИИ ==========
+    
+    if len(relevant_works) > 5:
+        st.markdown("<h4 style='margin-top: 30px;'>📈 Visualizations:</h4>", unsafe_allow_html=True)
+        
+        tab1, tab2, tab3 = st.tabs(["📅 By Year", "📊 By Citations", "🏷️ By Topic"])
+        
+        with tab1:
+            # График по годам
+            if relevant_works:
+                years = [w.get('publication_year', 0) for w in relevant_works if w.get('publication_year', 0) > 1900]
+                if years:
+                    year_counts = {}
+                    for year in years:
+                        year_counts[year] = year_counts.get(year, 0) + 1
+                    
+                    # Сортируем по годам
+                    sorted_years = sorted(year_counts.items())
+                    
+                    # Создаем график
+                    fig_years = go.Figure(data=[
+                        go.Bar(
+                            x=[str(y) for y, _ in sorted_years],
+                            y=[c for _, c in sorted_years],
+                            marker_color='#667eea',
+                            text=[c for _, c in sorted_years],
+                            textposition='auto',
+                        )
+                    ])
+                    
+                    fig_years.update_layout(
+                        title="Publications by Year",
+                        xaxis_title="Year",
+                        yaxis_title="Number of Papers",
+                        template="plotly_white",
+                        height=300
+                    )
+                    
+                    st.plotly_chart(fig_years, use_container_width=True)
+                else:
+                    st.info("No year data available for visualization")
+        
+        with tab2:
+            # График по цитированиям
+            if relevant_works:
+                citations = [w.get('cited_by_count', 0) for w in relevant_works]
+                
+                # Группируем по диапазонам
+                ranges = [0, 1, 2, 3, 5, 10]
+                range_labels = ['0', '1', '2', '3-4', '5-9', '10+']
+                range_counts = [0] * (len(ranges))
+                
+                for cit in citations:
+                    for i, limit in enumerate(ranges):
+                        if cit <= limit or (i == len(ranges)-1 and cit >= limit):
+                            range_counts[i] += 1
+                            break
+                
+                # Убираем нулевые значения
+                filtered_labels = []
+                filtered_counts = []
+                for label, count in zip(range_labels, range_counts):
+                    if count > 0:
+                        filtered_labels.append(label)
+                        filtered_counts.append(count)
+                
+                if filtered_counts:
+                    fig_citations = go.Figure(data=[
+                        go.Pie(
+                            labels=filtered_labels,
+                            values=filtered_counts,
+                            hole=.3,
+                            marker_colors=['#4CAF50', '#8BC34A', '#CDDC39', '#FFC107', '#FF9800', '#F44336']
+                        )
+                    ])
+                    
+                    fig_citations.update_layout(
+                        title="Citation Distribution",
+                        template="plotly_white",
+                        height=300
+                    )
+                    
+                    st.plotly_chart(fig_citations, use_container_width=True)
+                else:
+                    st.info("No citation data available for visualization")
+        
+        with tab3:
+            # График по темам (если есть данные)
+            topics = [w.get('primary_topic', '') for w in relevant_works if w.get('primary_topic')]
+            if topics:
+                topic_counts = {}
+                for topic in topics:
+                    topic_counts[topic] = topic_counts.get(topic, 0) + 1
+                
+                # Берем топ-10 тем
+                top_topics = sorted(topic_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+                
+                if top_topics:
+                    fig_topics = go.Figure(data=[
+                        go.Bar(
+                            x=[count for _, count in top_topics],
+                            y=[topic[:30] + '...' if len(topic) > 30 else topic for topic, _ in top_topics],
+                            orientation='h',
+                            marker_color='#764ba2',
+                        )
+                    ])
+                    
+                    fig_topics.update_layout(
+                        title="Top 10 Research Topics",
+                        xaxis_title="Number of Papers",
+                        yaxis_title="Topic",
+                        template="plotly_white",
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig_topics, use_container_width=True)
+                else:
+                    st.info("No topic data available for visualization")
+            else:
+                st.info("No topic data available for visualization")
+    
+    # ========== ЭКСПОРТ РЕЗУЛЬТАТОВ ==========
+    
+    st.markdown("<h4 style='margin-top: 30px;'>📥 Export Results:</h4>", unsafe_allow_html=True)
+    
+    # Информация о экспортируемых данных
+    st.markdown(f"""
+    <div class="info-message" style="margin-bottom: 15px;">
+        <div>
+            <strong>📋 Export Information</strong><br>
+            <span style="font-size: 0.85rem;">
+                • Exporting <strong>{len(relevant_works)}</strong> papers<br>
+                • Includes <strong>{len(input_dois)}</strong> original input DOI(s)<br>
+                • Filter parameters preserved for reproducibility<br>
+                • Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Кнопки экспорта
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        csv = generate_csv(relevant_works, input_dois, filter_params)
+        st.download_button(
+            label="📊 CSV",
+            data=csv,
+            file_name=f"under_cited_papers_{topic_name.replace(' ', '_').replace('/', '_')[:50]}.csv",
+            mime="text/csv",
+            use_container_width=True,
+            help="Download as CSV with metadata and filter parameters"
+        )
+    
+    with col2:
+        excel_data = generate_excel(relevant_works, input_dois, filter_params)
+        st.download_button(
+            label="📈 Excel",
+            data=excel_data,
+            file_name=f"under_cited_papers_{topic_name.replace(' ', '_').replace('/', '_')[:50]}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            help="Download as Excel with multiple sheets and formatting"
+        )
+    
+    with col3:
+        txt_data = generate_txt(relevant_works, topic_name, input_dois, filter_params)
+        st.download_button(
+            label="📝 TXT",
+            data=txt_data,
+            file_name=f"under_cited_papers_{topic_name.replace(' ', '_').replace('/', '_')[:50]}.txt",
+            mime="text/plain",
+            use_container_width=True,
+            help="Download as text file with detailed formatting"
+        )
+    
+    with col4:
+        pdf_data = generate_pdf(relevant_works[:50], topic_name, input_dois, filter_params)
+        st.download_button(
+            label="📄 PDF",
+            data=pdf_data,
+            file_name=f"under_cited_papers_{topic_name.replace(' ', '_').replace('/', '_')[:50]}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            help="Download as PDF report with visualizations"
+        )
+    
+    # ========== ДОПОЛНИТЕЛЬНЫЕ ОПЦИИ ==========
+    
+    st.markdown("---")
+    
+    # Опции для дальнейших действий
+    st.markdown("<h4>⚙️ Additional Options:</h4>", unsafe_allow_html=True)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("🔄 Re-run with Same Filters", use_container_width=True, help="Re-run analysis with current filters"):
+            if 'relevant_works' in st.session_state:
+                del st.session_state['relevant_works']
+            if 'current_cache_key' in st.session_state:
+                del st.session_state['current_cache_key']
+            st.rerun()
+    
+    with col2:
+        if st.button("⚙️ Adjust Filters", use_container_width=True, help="Go back to adjust filters"):
+            st.session_state.current_step = 3
+            st.rerun()
+    
+    with col3:
+        if st.button("🔍 New Topic Analysis", use_container_width=True, help="Select different topic"):
+            # Удаляем только связанные с результатами данные
+            for key in ['relevant_works', 'current_cache_key', 'selected_topic', 
+                       'selected_topic_id', 'selected_years', 'selected_ranges', 
+                       'top_keywords']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.session_state.current_step = 3
+            st.rerun()
+    
+    with col4:
+        if st.button("🏠 Start New Analysis", use_container_width=True, help="Start completely new analysis"):
+            # Полный сброс сессии
+            for key in list(st.session_state.keys()):
+                if key != 'current_step':
+                    del st.session_state[key]
+            st.session_state.current_step = 1
+            st.rerun()
+    
+    # ========== ИНФОРМАЦИЯ О ВОСПРОИЗВОДИМОСТИ ==========
+    
+    st.markdown("---")
+    
+    st.markdown("""
+    <div class="info-message">
+        <strong>🔍 Reproducibility Information:</strong><br>
+        <span style="font-size: 0.85rem;">
+        This analysis can be reproduced using the exported files. All export formats include:
+        </span>
+        <ul style="font-size: 0.85rem; margin: 5px 0 0 20px;">
+            <li>Original input DOI(s) used for analysis</li>
+            <li>Exact filter parameters applied</li>
+            <li>Analysis timestamp and report ID</li>
+            <li>Complete list of found papers with metadata</li>
+        </ul>
+        <span style="font-size: 0.85rem;">
+        To reproduce: Import the same DOI(s) and apply the same filters in Step 3.
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Футер
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align: center; color: #888; font-size: 0.8rem; margin-top: 1rem; padding: 10px;">
+        <p>Analysis completed. © CTA Article Recommender Pro | https://chimicatechnoacta.ru</p>
+        <p>Report generated on {} | Found {} papers | Topic: {}</p>
+    </div>
+    """.format(
+        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        len(relevant_works),
+        topic_name[:50] + '...' if len(topic_name) > 50 else topic_name
+    ), unsafe_allow_html=True)
 
 # ============================================================================
 # ГЛАВНАЯ ФУНКЦИЯ
@@ -2904,6 +3348,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
