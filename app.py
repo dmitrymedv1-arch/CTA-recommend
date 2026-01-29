@@ -424,6 +424,82 @@ def clear_old_cache():
     conn.commit()
 
 # ============================================================================
+# НОВЫЕ ФУНКЦИИ ДЛЯ ПАРСИНГА ДИАПАЗОНОВ ЦИТИРОВАНИЙ
+# ============================================================================
+
+def parse_citation_ranges(range_str: str) -> List[Tuple[int, int]]:
+    """
+    Парсит строку диапазонов цитирований в список кортежей.
+    
+    Примеры:
+    "0" -> [(0, 0)]
+    "0-3" -> [(0, 3)]
+    "1,3-5" -> [(1, 1), (3, 5)]
+    "0-1,3-4" -> [(0, 1), (3, 4)]
+    "0,1,2,3" -> [(0, 0), (1, 1), (2, 2), (3, 3)]
+    """
+    ranges = []
+    
+    if not range_str or range_str.strip() == "":
+        return [(0, 10)]  # По умолчанию
+    
+    # Разделяем по запятым
+    parts = range_str.split(',')
+    
+    for part in parts:
+        part = part.strip()
+        if '-' in part:
+            # Диапазон
+            try:
+                start, end = part.split('-')
+                start = int(start.strip())
+                end = int(end.strip())
+                
+                # Проверяем что end >= start и оба в пределах 0-10
+                if start <= end and 0 <= start <= 10 and 0 <= end <= 10:
+                    ranges.append((start, end))
+                else:
+                    logger.warning(f"Invalid range: {part}. Using default.")
+                    ranges.append((0, 10))
+            except ValueError:
+                logger.warning(f"Could not parse range: {part}. Using default.")
+                ranges.append((0, 10))
+        else:
+            # Одиночное значение
+            try:
+                value = int(part.strip())
+                if 0 <= value <= 10:
+                    ranges.append((value, value))
+                else:
+                    logger.warning(f"Value out of range: {value}. Using default.")
+                    ranges.append((0, 10))
+            except ValueError:
+                logger.warning(f"Could not parse value: {part}. Using default.")
+                ranges.append((0, 10))
+    
+    # Удаляем дубликаты и сортируем
+    unique_ranges = list(set(ranges))
+    unique_ranges.sort(key=lambda x: x[0])
+    
+    return unique_ranges if unique_ranges else [(0, 10)]
+
+def format_citation_ranges(ranges: List[Tuple[int, int]]) -> str:
+    """
+    Форматирует список диапазонов в читаемую строку.
+    """
+    if not ranges:
+        return "0-10"
+    
+    parts = []
+    for start, end in ranges:
+        if start == end:
+            parts.append(str(start))
+        else:
+            parts.append(f"{start}-{end}")
+    
+    return ", ".join(parts)
+
+# ============================================================================
 # ASYNCIO + AIOHTTP
 # ============================================================================
 
@@ -1714,6 +1790,13 @@ def create_back_button():
     """Создает кнопку возврата назад"""
     if st.session_state.current_step > 1:
         if st.button("← Back", key="back_button", use_container_width=False):
+            # При возврате на шаг 3, сбрасываем кэш результатов, чтобы фильтры применились заново
+            if st.session_state.current_step == 4:
+                if 'relevant_works' in st.session_state:
+                    del st.session_state['relevant_works']
+                if 'top_keywords' in st.session_state:
+                    del st.session_state['top_keywords']
+            
             st.session_state.current_step -= 1
             st.rerun()
 
@@ -1822,14 +1905,15 @@ def create_topic_selection_ui():
         col1, col2 = st.columns(2)
         
         with col1:
-            # Фильтр по годам
+            # Фильтр по годам - ТОЛЬКО последние 3 года
             current_year = datetime.now().year
-            years = list(range(current_year - 10, current_year + 1))
+            years = list(range(current_year - 2, current_year + 1))  # Только 3 последних года
+            
             selected_years = st.multiselect(
                 "Publication Years:",
                 options=years,
                 default=[current_year - 2, current_year - 1, current_year],
-                help="Select years to include in analysis"
+                help="Select publication years (last 3 years only)"
             )
             
             if not selected_years:
@@ -1839,36 +1923,81 @@ def create_topic_selection_ui():
             st.session_state.selected_years = selected_years
         
         with col2:
-            # Фильтр по цитированиям (диапазоны)
+            # Фильтр по цитированиям (обновленные опции)
             citation_options = [
-                ("Exactly 0", [(0, 0)]),
-                ("0-2 citations", [(0, 2)]),
-                ("0-5 citations", [(0, 5)]),
-                ("2-5 citations", [(2, 5)]),
-                ("Exactly 3", [(3, 3)]),
-                ("3-5 citations", [(3, 5)]),
-                ("5-10 citations", [(5, 10)]),
-                ("0-2 OR 4", [(0, 2), (4, 4)]),  # Пример сложного диапазона
+                ("0 citations", "0"),
+                ("1 citation", "1"),
+                ("2 citations", "2"),
+                ("3 citations", "3"),
+                ("4 citations", "4"),
+                ("5 citations", "5"),
+                ("6 citations", "6"),
+                ("7 citations", "7"),
+                ("8 citations", "8"),
+                ("9 citations", "9"),
+                ("10 citations", "10"),
+                ("0-2 citations", "0-2"),
+                ("0-3 citations", "0-3"),
+                ("0-5 citations", "0-5"),
+                ("1-3 citations", "1-3"),
+                ("1-5 citations", "1-5"),
+                ("2-5 citations", "2-5"),
+                ("3-5 citations", "3-5"),
+                ("5-10 citations", "5-10"),
+                ("0-1,3-4 (multiple ranges)", "0-1,3-4"),
                 ("Custom...", "custom")
             ]
             
             selected_option = st.selectbox(
                 "Citation Ranges:",
                 options=[opt[0] for opt in citation_options],
-                index=2,
-                help="Select citation ranges to include"
+                index=2,  # По умолчанию "0-2 citations"
+                help="Select citation ranges (0-10 only)"
             )
             
+            # Определяем выбранные диапазоны
             if selected_option == "Custom...":
-                st.text_input("Enter ranges (e.g., '0-2,4,5-10'):", key="custom_ranges")
+                custom_input = st.text_input(
+                    "Enter custom ranges (e.g., '0-2,4,5-7'):",
+                    value="0-2",
+                    help="Enter comma-separated values or ranges (0-10 only)"
+                )
+                if custom_input:
+                    citation_ranges = parse_citation_ranges(custom_input)
+                    # Проверяем что все значения в пределах 0-10
+                    valid_ranges = []
+                    for start, end in citation_ranges:
+                        if 0 <= start <= 10 and 0 <= end <= 10:
+                            valid_ranges.append((start, end))
+                        else:
+                            st.warning(f"Range {start}-{end} is outside 0-10. It will be ignored.")
+                    
+                    if valid_ranges:
+                        st.session_state.selected_ranges = valid_ranges
+                        st.info(f"Selected ranges: {format_citation_ranges(valid_ranges)}")
+                    else:
+                        st.session_state.selected_ranges = [(0, 2)]
+                        st.warning("Using default range: 0-2")
+                else:
+                    st.session_state.selected_ranges = [(0, 2)]
             else:
-                selected_ranges = next(opt[1] for opt in citation_options if opt[0] == selected_option)
-                st.session_state.selected_ranges = selected_ranges
+                # Получаем строку диапазона из выбранной опции
+                range_str = next(opt[1] for opt in citation_options if opt[0] == selected_option)
+                citation_ranges = parse_citation_ranges(range_str)
+                st.session_state.selected_ranges = citation_ranges
+                st.info(f"Selected: {selected_option}")
         
         # Кнопка запуска анализа
+        st.markdown("---")
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            if st.button("🔍 Start Deep Analysis", type="primary", use_container_width=True):
+            if st.button("🔍 Start Deep Analysis", type="primary", use_container_width=True, key="start_analysis"):
+                # Сбрасываем кэш предыдущих результатов
+                if 'relevant_works' in st.session_state:
+                    del st.session_state['relevant_works']
+                if 'top_keywords' in st.session_state:
+                    del st.session_state['top_keywords']
+                
                 st.session_state.current_step = 4
                 st.rerun()
 
@@ -2031,21 +2160,37 @@ def step_results():
         return
     
     # Получаем фильтры
-    selected_years = st.session_state.get('selected_years', [datetime.now().year - 2, datetime.now().year - 1, datetime.now().year])
-    selected_ranges = st.session_state.get('selected_ranges', [(0, 10)])
+    selected_years = st.session_state.get('selected_years', [])
+    if not selected_years:
+        current_year = datetime.now().year
+        selected_years = [current_year - 2, current_year - 1, current_year]
+        st.session_state.selected_years = selected_years
     
-    # Анализ работ по теме
+    selected_ranges = st.session_state.get('selected_ranges', [])
+    if not selected_ranges:
+        selected_ranges = [(0, 2)]
+        st.session_state.selected_ranges = selected_ranges
+    
+    # Анализ работ по теме (только если еще не анализировали или фильтры изменились)
     if 'relevant_works' not in st.session_state:
         with st.spinner("Searching for fresh papers..."):
+            # Получаем топ-10 ключевых слов
+            top_keywords = [kw for kw, _ in st.session_state.keyword_counter.most_common(10)]
+            
+            # Сохраняем ключевые слова в сессии
+            st.session_state.top_keywords = top_keywords
+            
+            # Выполняем анализ
             relevant_works = analyze_works_for_topic(
                 st.session_state.selected_topic_id,
-                [kw for kw, _ in st.session_state.keyword_counter.most_common(10)],
+                top_keywords,
                 max_citations=10,
                 max_works=2000,
                 top_n=100,
                 year_filter=selected_years,
                 citation_ranges=selected_ranges
             )
+        
         st.session_state.relevant_works = relevant_works
     else:
         relevant_works = st.session_state.relevant_works
@@ -2055,8 +2200,11 @@ def step_results():
     with col1:
         create_metric_card_compact("Papers Found", len(relevant_works), "📄")
     with col2:
-        avg_citations = np.mean([w.get('cited_by_count', 0) for w in relevant_works]) if relevant_works else 0
-        create_metric_card_compact("Avg Citations", f"{avg_citations:.1f}", "📈")
+        if relevant_works:
+            avg_citations = np.mean([w.get('cited_by_count', 0) for w in relevant_works])
+            create_metric_card_compact("Avg Citations", f"{avg_citations:.1f}", "📈")
+        else:
+            create_metric_card_compact("Avg Citations", "0", "📈")
     with col3:
         oa_count = sum(1 for w in relevant_works if w.get('is_oa'))
         create_metric_card_compact("Open Access", oa_count, "🔓")
@@ -2069,7 +2217,7 @@ def step_results():
     st.markdown(f"""
     <div style="margin: 10px 0; font-size: 0.85rem; color: #666;">
         <strong>Active filters:</strong> Years: {', '.join(map(str, selected_years))} | 
-        Citation ranges: {', '.join([f'{min_cit}-{max_cit}' for min_cit, max_cit in selected_ranges])}
+        Citation ranges: {format_citation_ranges(selected_ranges)}
     </div>
     """, unsafe_allow_html=True)
     
@@ -2077,6 +2225,11 @@ def step_results():
         st.warning("""
         <div class="warning-message">
             <strong>⚠️ No papers match your filters</strong><br>
+            This might happen when:<br>
+            1. Current year selected with high citation threshold (papers might not have enough citations yet)<br>
+            2. Very specific citation range selected<br>
+            3. Topic has limited publications in selected years<br>
+            <br>
             Try adjusting your filters in Step 3.
         </div>
         """, unsafe_allow_html=True)
@@ -2181,7 +2334,9 @@ def step_results():
         with col2:
             if st.button("🔄 Start New Analysis", use_container_width=True):
                 for key in ['relevant_works', 'selected_topic', 'selected_topic_id', 
-                          'selected_years', 'selected_ranges', 'top_keywords']:
+                          'selected_years', 'selected_ranges', 'top_keywords',
+                          'works_data', 'topic_counter', 'keyword_counter',
+                          'successful', 'failed', 'dois']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.session_state.current_step = 1
@@ -2233,7 +2388,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
