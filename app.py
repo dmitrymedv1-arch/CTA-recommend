@@ -644,51 +644,66 @@ def enrich_work_data(work: dict) -> dict:
     if not work:
         return {}
     
+    # Безопасное получение DOI
+    doi_raw = work.get('doi')
+    doi_clean = ''
+    if doi_raw:
+        doi_clean = str(doi_raw).replace('https://doi.org/', '')
+    
     enriched = {
         'id': work.get('id', ''),
-        'doi': work.get('doi', '').replace('https://doi.org/', ''),
+        'doi': doi_clean,
         'title': work.get('title', ''),
         'publication_date': work.get('publication_date', ''),
         'publication_year': work.get('publication_year', 0),
         'cited_by_count': work.get('cited_by_count', 0),
         'type': work.get('type', ''),
-        'abstract': work.get('abstract', '')[:500] if work.get('abstract') else '',
+        'abstract': (work.get('abstract') or '')[:500],
     }
     
-    # Авторы
+    # Безопасное получение авторов
     authorships = work.get('authorships', [])
     authors = []
     institutions = set()
     
     for authorship in authorships:
-        author = authorship.get('author', {})
-        if author:
-            author_name = author.get('display_name', '')
-            if author_name:
-                authors.append(author_name)
-        
-        for inst in authorship.get('institutions', []):
-            inst_name = inst.get('display_name', '')
-            if inst_name:
-                institutions.add(inst_name)
+        if authorship:
+            author = authorship.get('author', {})
+            if author:
+                author_name = author.get('display_name', '')
+                if author_name:
+                    authors.append(author_name)
+            
+            for inst in authorship.get('institutions', []):
+                if inst:
+                    inst_name = inst.get('display_name', '')
+                    if inst_name:
+                        institutions.add(inst_name)
     
     enriched['authors'] = authors[:5]
     enriched['institutions'] = list(institutions)
     
-    # Журнал
-    primary_location = work.get('primary_location', {})
-    source = primary_location.get('source', {}) if primary_location else {}
-    enriched['venue_name'] = source.get('display_name', '') if source else ''
-    enriched['venue_type'] = source.get('type', '') if source else ''
-    enriched['is_oa'] = work.get('open_access', {}).get('is_oa', False) if work.get('open_access') else False
+    # Безопасное получение данных журнала
+    primary_location = work.get('primary_location')
+    if primary_location:
+        source = primary_location.get('source', {})
+        enriched['venue_name'] = source.get('display_name', '')
+        enriched['venue_type'] = source.get('type', '')
+    else:
+        enriched['venue_name'] = ''
+        enriched['venue_type'] = ''
     
-    # Темы
+    open_access = work.get('open_access')
+    enriched['is_oa'] = open_access.get('is_oa', False) if open_access else False
+    
+    # Безопасное получение тем
     topics = work.get('topics', [])
     if topics:
-        sorted_topics = sorted(topics, key=lambda x: x.get('score', 0), reverse=True)
-        primary_topic = sorted_topics[0]
-        enriched['primary_topic'] = primary_topic.get('display_name', '')
-        enriched['topic_id'] = primary_topic.get('id', '').split('/')[-1]
+        sorted_topics = sorted(topics, key=lambda x: x.get('score', 0) if x else 0, reverse=True)
+        primary_topic = sorted_topics[0] if sorted_topics else {}
+        enriched['primary_topic'] = primary_topic.get('display_name', '') if primary_topic else ''
+        topic_id = primary_topic.get('id', '') if primary_topic else ''
+        enriched['topic_id'] = topic_id.split('/')[-1] if topic_id else ''
     else:
         enriched['primary_topic'] = ''
         enriched['topic_id'] = ''
@@ -1029,3 +1044,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
