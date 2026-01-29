@@ -1107,9 +1107,23 @@ def generate_csv(data: List[dict], metadata: Dict = None) -> str:
     
     return "\n".join(csv_content)
 
-def generate_excel(data: List[dict], metadata: Dict = None) -> bytes:
-    """Генерация Excel файла с метаданными"""
+def generate_excel(data: List[dict]) -> bytes:
+    """Генерация Excel файла"""
     output = io.BytesIO()
+    
+    safe_data = []
+    for item in data:
+        safe_item = {}
+        for key, value in item.items():
+            if isinstance(value, list):
+                safe_item[key] = ', '.join(str(v) for v in value)
+            elif value is None:
+                safe_item[key] = ''
+            else:
+                safe_item[key] = str(value)
+        safe_data.append(safe_item)
+    
+    df = pd.DataFrame(safe_data)
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
@@ -1330,7 +1344,7 @@ def generate_excel(data: List[dict], metadata: Dict = None) -> bytes:
                 elif col_name in ['relevance_score', 'Relevance']:
                     worksheet.write(row_num, col_num, cell_value, relevance_format)
                 else:
-                    worksheet.write(row_num, col_num, cell_value, data_format)
+                    worksheet.write(row_num, col_num, str(cell_value) if cell_value is not None else '', data_format)
         
         # Авто-ширина колонок
         for i, col in enumerate(df.columns):
@@ -2973,6 +2987,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
