@@ -2381,12 +2381,12 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; color: #888; font-size: 0.8rem; margin-top: 1rem;">
-        <p>Powered by OpenAlex API • Polite pool enabled • Local caching</p>
         <p>© CTA, https://chimicatechnoacta.ru / developed by daM©</p>
     </div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
 
 
