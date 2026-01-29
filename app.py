@@ -676,10 +676,11 @@ def enrich_work_data(work: dict) -> dict:
     enriched['institutions'] = list(institutions)
     
     # Журнал
-    source = work.get('primary_location', {}).get('source', {})
-    enriched['venue_name'] = source.get('display_name', '')
-    enriched['venue_type'] = source.get('type', '')
-    enriched['is_oa'] = work.get('open_access', {}).get('is_oa', False)
+    primary_location = work.get('primary_location', {})
+    source = primary_location.get('source', {}) if primary_location else {}
+    enriched['venue_name'] = source.get('display_name', '') if source else ''
+    enriched['venue_type'] = source.get('type', '') if source else ''
+    enriched['is_oa'] = work.get('open_access', {}).get('is_oa', False) if work.get('open_access') else False
     
     # Темы
     topics = work.get('topics', [])
@@ -1026,4 +1027,5 @@ def main():
                 st.warning("Нет работ, соответствующих фильтрам")
 
 if __name__ == "__main__":
+
     main()
