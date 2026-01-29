@@ -414,9 +414,12 @@ def clear_old_cache():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('DELETE FROM works_cache WHERE expires_at <= ?', (datetime.now(),))
-    cursor.execute('DELETE FROM topic_works_cache WHERE expires_at <= ?', (datetime.now(),))
-    cursor.execute('DELETE FROM topics_cache WHERE expires_at <= ?', (datetime.now(),))
+    # Преобразуем datetime в строку в ISO формате для SQLite
+    now_str = datetime.now().isoformat(' ', 'seconds')
+    
+    cursor.execute('DELETE FROM works_cache WHERE expires_at <= ?', (now_str,))
+    cursor.execute('DELETE FROM topic_works_cache WHERE expires_at <= ?', (now_str,))
+    cursor.execute('DELETE FROM topics_cache WHERE expires_at <= ?', (now_str,))
     
     conn.commit()
 
@@ -2230,6 +2233,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
