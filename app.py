@@ -1788,7 +1788,7 @@ def create_topic_selection_ui():
             <div class="topic-card {'selected' if is_selected else ''}" 
                  onclick="this.style.background='#667eea10';">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div style="font-weight: 600; font-size: 0.9rem;">{topic[:55]}{'...' if len(topic) > 25 else ''}</div>
+                    <div style="font-weight: 600; font-size: 0.9rem;">{topic[:80]}{'...' if len(topic) > 25 else ''}</div>
                     <span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">
                         {count} papers
                     </span>
@@ -2230,6 +2230,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
