@@ -1373,28 +1373,280 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     return buffer.getvalue()
 
 def generate_txt(data: List[dict], topic_name: str) -> str:
-    """Генерация TXT файла"""
+    """Генерация TXT файла с улучшенным форматированием и структурой"""
+    
     output = []
+    
+    # ========== ЗАГОЛОВОК ==========
     output.append("=" * 80)
-    output.append("CTA Research Explorer Pro")
-    output.append(f"Topic: {topic_name}")
-    output.append(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    output.append("© CTA, https://chimicatechnoacta.ru / developed by daM©")
+    output.append("CTA RESEARCH EXPLORER PRO")
+    output.append("Under-Cited Papers Analysis Report")
+    output.append("=" * 80)
+    output.append("")
+    
+    # ========== ИНФОРМАЦИЯ О ТЕМЕ ==========
+    output.append("RESEARCH TOPIC:")
+    output.append(f"  {topic_name.upper()}")
+    output.append("")
+    
+    # ========== МЕТА-ИНФОРМАЦИЯ ==========
+    current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    output.append("REPORT INFORMATION:")
+    output.append(f"  Generated: {current_date}")
+    output.append(f"  Papers analyzed: {len(data)}")
+    
+    if data:
+        avg_citations = np.mean([w.get('cited_by_count', 0) for w in data])
+        oa_count = sum(1 for w in data if w.get('is_oa'))
+        recent_count = sum(1 for w in data if w.get('publication_year', 0) >= datetime.now().year - 2)
+        
+        output.append(f"  Average citations: {avg_citations:.2f}")
+        output.append(f"  Open Access papers: {oa_count}")
+        output.append(f"  Recent papers (≤2 years): {recent_count}")
+    
+    output.append("")
+    output.append("© CTA - Chemical Technology Acta")
+    output.append("https://chimicatechnoacta.ru")
+    output.append("Developed by daM©")
+    output.append("")
+    output.append("=" * 80)
+    output.append("")
+    
+    # ========== ОГЛАВЛЕНИЕ ==========
+    output.append("TABLE OF CONTENTS")
+    output.append("-" * 40)
+    
+    # Группируем статьи по релевантности
+    high_relevance = [w for w in data if w.get('relevance_score', 0) >= 8]
+    medium_relevance = [w for w in data if 5 <= w.get('relevance_score', 0) < 8]
+    low_relevance = [w for w in data if w.get('relevance_score', 0) < 5]
+    
+    output.append(f"  High Relevance (Score ≥ 8): {len(high_relevance)} papers")
+    output.append(f"  Medium Relevance (5-7): {len(medium_relevance)} papers")
+    output.append(f"  Low Relevance (Score < 5): {len(low_relevance)} papers")
+    output.append("")
+    
+    # Быстрый обзор по годам
+    if data:
+        years = [w.get('publication_year', 0) for w in data if w.get('publication_year', 0) > 1900]
+        if years:
+            output.append("PUBLICATION YEAR DISTRIBUTION:")
+            year_counts = {}
+            for year in years:
+                year_counts[year] = year_counts.get(year, 0) + 1
+            
+            for year in sorted(year_counts.keys(), reverse=True)[:5]:  # Топ 5 последних лет
+                output.append(f"  {year}: {year_counts[year]} papers")
+            output.append("")
+    
+    output.append("=" * 80)
+    output.append("")
+    
+    # ========== ДЕТАЛЬНЫЙ АНАЛИЗ СТАТЕЙ ==========
+    output.append("DETAILED PAPER ANALYSIS")
     output.append("=" * 80)
     output.append("")
     
     for i, work in enumerate(data, 1):
-        output.append(f"{i}. {work.get('title', 'No title')}")
-        output.append(f"   Authors: {', '.join(work.get('authors', ['Unknown']))[:100]}")
-        output.append(f"   Year: {work.get('publication_year', 'N/A')}")
-        output.append(f"   Citations: {work.get('cited_by_count', 0)}")
-        output.append(f"   Relevance Score: {work.get('relevance_score', 0)}")
-        output.append(f"   DOI: {work.get('doi', 'N/A')}")
-        output.append(f"   Journal: {work.get('venue_name', 'N/A')}")
-        output.append(f"   Open Access: {'Yes' if work.get('is_oa') else 'No'}")
+        # Номер и релевантность
+        relevance_score = work.get('relevance_score', 0)
+        relevance_stars = "★" * min(int(relevance_score), 5) + "☆" * max(5 - int(relevance_score), 0)
+        
+        output.append(f"PAPER #{i:03d}")
+        output.append(f"Relevance: {relevance_score}/10 {relevance_stars}")
+        output.append("-" * 40)
+        
+        # Заголовок
+        title = work.get('title', 'No title available')
+        output.append(f"TITLE: {title}")
+        
+        # Авторы
+        authors = work.get('authors', [])
+        if authors:
+            output.append(f"AUTHORS: {', '.join(authors[:3])}")
+            if len(authors) > 3:
+                output.append(f"         + {len(authors) - 3} more authors")
+        
+        # Основные метрики
+        citations = work.get('cited_by_count', 0)
+        year = work.get('publication_year', 'N/A')
+        venue = work.get('venue_name', 'N/A')
+        
+        output.append("METRICS:")
+        output.append(f"  • Citations: {citations}")
+        output.append(f"  • Year: {year}")
+        output.append(f"  • Journal/Conference: {venue}")
+        output.append(f"  • Open Access: {'Yes' if work.get('is_oa') else 'No'}")
+        
+        # Ключевые слова
         if work.get('matched_keywords'):
-            output.append(f"   Matched Keywords: {', '.join(work.get('matched_keywords', []))}")
-        output.append("-" * 80)
+            keywords = work.get('matched_keywords', [])
+            output.append(f"KEYWORDS: {', '.join(keywords[:5])}")
+            if len(keywords) > 5:
+                output.append(f"          + {len(keywords) - 5} more keywords")
+        
+        # DOI и ссылка
+        doi = work.get('doi', '')
+        doi_url = work.get('doi_url', '')
+        
+        if doi:
+            output.append(f"DOI: {doi}")
+            if doi_url:
+                output.append(f"LINK: {doi_url}")
+        
+        # Абстракт (если есть и короткий)
+        abstract = work.get('abstract', '')
+        if abstract and len(abstract) < 300:
+            output.append("ABSTRACT:")
+            # Форматируем абстракт с переносами строк
+            words = abstract.split()
+            lines = []
+            current_line = ""
+            for word in words:
+                if len(current_line) + len(word) + 1 <= 70:
+                    current_line += " " + word if current_line else word
+                else:
+                    lines.append("  " + current_line)
+                    current_line = word
+            if current_line:
+                lines.append("  " + current_line)
+            output.extend(lines)
+        
+        # Разделитель между статьями
+        if i < len(data):
+            output.append("")
+            output.append("─" * 60)
+            output.append("")
+    
+    output.append("=" * 80)
+    output.append("")
+    
+    # ========== СТАТИСТИЧЕСКАЯ СВОДКА ==========
+    if len(data) > 5:
+        output.append("STATISTICAL SUMMARY")
+        output.append("=" * 80)
+        output.append("")
+        
+        citations_list = [w.get('cited_by_count', 0) for w in data]
+        relevance_list = [w.get('relevance_score', 0) for w in data]
+        
+        if citations_list:
+            output.append("CITATION ANALYSIS:")
+            output.append(f"  Average: {np.mean(citations_list):.2f}")
+            output.append(f"  Median: {np.median(citations_list):.2f}")
+            output.append(f"  Minimum: {min(citations_list)}")
+            output.append(f"  Maximum: {max(citations_list)}")
+            output.append(f"  Standard Deviation: {np.std(citations_list):.2f}")
+            output.append("")
+            
+            # Распределение по количеству цитирований
+            output.append("CITATION DISTRIBUTION:")
+            ranges = [(0, 0), (1, 2), (3, 5), (6, 10), (11, 20), (21, 50), (51, 100), (101, 1000)]
+            for min_cit, max_cit in ranges:
+                count = sum(1 for w in data if min_cit <= w.get('cited_by_count', 0) <= max_cit)
+                if count > 0:
+                    if min_cit == max_cit:
+                        range_str = f"Exactly {min_cit}"
+                    else:
+                        range_str = f"{min_cit}-{max_cit}"
+                    percentage = (count / len(data)) * 100
+                    output.append(f"  {range_str:12} citations: {count:3d} papers ({percentage:5.1f}%)")
+            output.append("")
+        
+        if relevance_list:
+            output.append("RELEVANCE SCORE ANALYSIS:")
+            output.append(f"  Average: {np.mean(relevance_list):.2f}/10")
+            output.append(f"  Median: {np.median(relevance_list):.2f}/10")
+            
+            # Распределение по релевантности
+            relevance_counts = {score: 0 for score in range(1, 11)}
+            for score in relevance_list:
+                rounded = min(int(score), 10)
+                relevance_counts[rounded] = relevance_counts.get(rounded, 0) + 1
+            
+            output.append("  Distribution:")
+            for score in range(10, 0, -1):
+                count = relevance_counts.get(score, 0)
+                if count > 0:
+                    percentage = (count / len(data)) * 100
+                    stars = "★" * min(score, 5) + "☆" * max(5 - score, 0)
+                    output.append(f"    Score {score:2d}/10 {stars}: {count:3d} papers ({percentage:5.1f}%)")
+            output.append("")
+    
+    # ========== ТОП РЕКОМЕНДАЦИЙ ==========
+    if len(data) > 10:
+        output.append("TOP RECOMMENDATIONS")
+        output.append("=" * 80)
+        output.append("")
+        
+        # Сортируем по релевантности, затем по годам (новые первыми)
+        sorted_data = sorted(data, key=lambda x: (-x.get('relevance_score', 0), 
+                                                  -x.get('publication_year', 0)))
+        
+        output.append("Highest Relevance & Most Recent:")
+        for i, work in enumerate(sorted_data[:5], 1):
+            title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
+            output.append(f"  {i}. {title}")
+            output.append(f"     Year: {work.get('publication_year', 'N/A')}, "
+                         f"Citations: {work.get('cited_by_count', 0)}, "
+                         f"Score: {work.get('relevance_score', 0)}/10")
+        
+        output.append("")
+        output.append("Most Cited (among under-cited):")
+        # Берем статьи с ненулевыми цитированиями
+        cited_papers = [w for w in data if w.get('cited_by_count', 0) > 0]
+        if cited_papers:
+            most_cited = sorted(cited_papers, key=lambda x: -x.get('cited_by_count', 0))
+            for i, work in enumerate(most_cited[:3], 1):
+                title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
+                output.append(f"  {i}. {title}")
+                output.append(f"     Citations: {work.get('cited_by_count', 0)}, "
+                             f"Year: {work.get('publication_year', 'N/A')}")
+        
+        output.append("")
+        output.append("Newest Publications:")
+        recent_papers = sorted(data, key=lambda x: -x.get('publication_year', 0))
+        for i, work in enumerate(recent_papers[:3], 1):
+            title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
+            output.append(f"  {i}. {title}")
+            output.append(f"     Year: {work.get('publication_year', 'N/A')}, "
+                         f"Citations: {work.get('cited_by_count', 0)}")
+    
+    # ========== ЗАКЛЮЧЕНИЕ ==========
+    output.append("=" * 80)
+    output.append("CONCLUSION")
+    output.append("=" * 80)
+    output.append("")
+    
+    conclusions = [
+        f"This analysis identified {len(data)} under-cited papers in '{topic_name}'.",
+        "",
+        "KEY INSIGHTS:",
+        "• These papers may represent emerging research trends",
+        "• Low citation counts don't necessarily indicate low quality",
+        "• Consider these for literature reviews and gap analysis",
+        "• They may contain novel methodologies or cross-disciplinary insights",
+        "",
+        "RECOMMENDED ACTIONS:",
+        "1. Review high-relevance papers for potential citations",
+        "2. Use as starting points for systematic reviews",
+        "3. Identify research gaps and opportunities",
+        "4. Track emerging authors in this field",
+        "",
+        "REPORT METADATA:",
+        f"• Generated by: CTA Research Explorer Pro v1.0",
+        f"• Report ID: {hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12].upper()}",
+        f"• Data source: OpenAlex API",
+        f"• Analysis date: {current_date}",
+        "",
+        "© CTA - Chemical Technology Acta | https://chimicatechnoacta.ru",
+        "This report is for research purposes only.",
+        "Always verify information with original sources.",
+        "",
+        "End of Report"
+    ]
+    
+    output.extend(conclusions)
     
     return "\n".join(output)
 
@@ -1941,6 +2193,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
