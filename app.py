@@ -2142,7 +2142,27 @@ def step_topic_selection():
         st.error("❌ No data available. Please start from Step 1.")
         return
     
-    create_topic_selection_ui()
+    # Проверяем, если есть только одна тема, выбираем ее автоматически
+    topics = st.session_state.topic_counter.most_common()
+    
+    if len(topics) == 1:
+        # Автоматически выбираем единственную тему
+        topic, count = topics[0]
+        st.session_state.selected_topic = topic
+        
+        # Находим ID темы из данных
+        for work in st.session_state.works_data:
+            if work.get('primary_topic') == topic:
+                topic_id = work.get('topic_id')
+                if topic_id:
+                    st.session_state.selected_topic_id = topic_id
+                    break
+        
+        st.info(f"📌 Single topic detected: **{topic}** ({count} papers) - automatically selected")
+        st.session_state.current_step = 4
+        st.rerun()
+    else:
+        create_topic_selection_ui()
 
 def step_results():
     """Шаг 4: Результаты (компактный)"""
@@ -2387,4 +2407,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
