@@ -1951,7 +1951,7 @@ def create_topic_selection_ui():
             selected_option = st.selectbox(
                 "Citation Ranges:",
                 options=[opt[0] for opt in citation_options],
-                index=2,  # По умолчанию "0-2 citations"
+                index=12,
                 help="Select citation ranges (0-10 only)"
             )
             
@@ -2387,3 +2387,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
