@@ -1055,34 +1055,282 @@ def analyze_works_for_topic(
 # ФУНКЦИИ ЭКСПОРТА
 # ============================================================================
 
-def generate_csv(data: List[dict]) -> str:
-    """Генерация CSV файла"""
+def generate_csv(data: List[dict], metadata: Dict = None) -> str:
+    """Генерация CSV файла с метаданными"""
     df = pd.DataFrame(data)
-    return df.to_csv(index=False, encoding='utf-8-sig')
+    
+    # Добавляем метаданные как комментарии в начало файла
+    csv_content = []
+    
+    if metadata:
+        csv_content.append("# " + "=" * 70)
+        csv_content.append("# CTA Article Recommender Pro - Analysis Report")
+        csv_content.append("# " + "=" * 70)
+        csv_content.append(f"# Generated: {metadata.get('generated_date', '')}")
+        csv_content.append(f"# Research Topic: {metadata.get('topic_name', '')}")
+        csv_content.append(f"# Total analyzed papers: {metadata.get('total_papers', len(data))}")
+        csv_content.append(f"# Analysis parameters:")
+        
+        if metadata.get('original_dois'):
+            dois = metadata['original_dois']
+            csv_content.append(f"# - Input DOIs: {len(dois)} identifiers")
+            if len(dois) <= 5:
+                for doi in dois:
+                    csv_content.append(f"#   • {doi}")
+            else:
+                csv_content.append(f"#   • First 3: {dois[0]}, {dois[1]}, {dois[2]}...")
+                csv_content.append(f"#   • Last 3: ...{dois[-3]}, {dois[-2]}, {dois[-1]}")
+        
+        if metadata.get('analysis_filters'):
+            filters = metadata['analysis_filters']
+            csv_content.append(f"# - Publication years: {filters.get('years', 'All')}")
+            csv_content.append(f"# - Citation ranges: {filters.get('citation_ranges', '0-10')}")
+            csv_content.append(f"# - Max citations: {filters.get('max_citations', 10)}")
+        
+        if metadata.get('keywords_used'):
+            keywords = metadata['keywords_used']
+            csv_content.append(f"# - Keywords used for relevance: {', '.join(keywords[:10])}")
+            if len(keywords) > 10:
+                csv_content.append(f"#   ... and {len(keywords)-10} more")
+        
+        csv_content.append("# " + "-" * 70)
+        csv_content.append("#")
+        csv_content.append("# To reproduce this analysis:")
+        csv_content.append("# 1. Use the same DOIs as input")
+        csv_content.append("# 2. Apply the same filters")
+        csv_content.append("# 3. Run CTA Article Recommender Pro")
+        csv_content.append("# " + "=" * 70)
+        csv_content.append("")
+    
+    # Добавляем данные
+    csv_content.append(df.to_csv(index=False, encoding='utf-8-sig'))
+    
+    return "\n".join(csv_content)
 
-def generate_excel(data: List[dict]) -> bytes:
-    """Генерация Excel файла"""
+def generate_excel(data: List[dict], metadata: Dict = None) -> bytes:
+    """Генерация Excel файла с метаданными"""
     output = io.BytesIO()
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        
+        # ========== ВКЛАДКА С МЕТАДАННЫМИ ==========
+        if metadata:
+            metadata_sheet = workbook.add_worksheet('Analysis Info')
+            
+            # Форматы
+            title_format = workbook.add_format({
+                'bold': True,
+                'font_size': 14,
+                'font_color': '#2C3E50',
+                'align': 'center',
+                'valign': 'vcenter',
+                'border': 1,
+                'bg_color': '#ECF0F1'
+            })
+            
+            header_format = workbook.add_format({
+                'bold': True,
+                'font_size': 11,
+                'font_color': 'white',
+                'bg_color': '#3498DB',
+                'border': 1,
+                'align': 'left',
+                'valign': 'vcenter'
+            })
+            
+            data_format = workbook.add_format({
+                'font_size': 10,
+                'align': 'left',
+                'valign': 'vcenter',
+                'border': 1,
+                'text_wrap': True
+            })
+            
+            doi_format = workbook.add_format({
+                'font_size': 9,
+                'font_color': '#2980B9',
+                'align': 'left',
+                'valign': 'vcenter',
+                'font_name': 'Courier New'
+            })
+            
+            # Заголовок
+            metadata_sheet.merge_range('A1:F1', 'CTA Article Recommender Pro - Analysis Report', title_format)
+            
+            # Основная информация
+            row = 2
+            metadata_sheet.write(row, 0, 'Generated:', header_format)
+            metadata_sheet.write(row, 1, metadata.get('generated_date', ''), data_format)
+            row += 1
+            
+            metadata_sheet.write(row, 0, 'Research Topic:', header_format)
+            metadata_sheet.write(row, 1, metadata.get('topic_name', ''), data_format)
+            row += 1
+            
+            metadata_sheet.write(row, 0, 'Total papers found:', header_format)
+            metadata_sheet.write(row, 1, len(data), data_format)
+            row += 2
+            
+            # Исходные данные
+            metadata_sheet.write(row, 0, 'INPUT DATA', workbook.add_format({
+                'bold': True,
+                'font_size': 12,
+                'font_color': '#2C3E50',
+                'bg_color': '#BDC3C7',
+                'border': 1
+            }))
+            metadata_sheet.merge_range(row, 1, row, 5, '', header_format)
+            row += 1
+            
+            if metadata.get('original_dois'):
+                dois = metadata['original_dois']
+                metadata_sheet.write(row, 0, 'Original DOIs:', header_format)
+                metadata_sheet.write(row, 1, f'{len(dois)} identifiers', data_format)
+                row += 1
+                
+                # Показываем первые 20 DOI
+                metadata_sheet.write(row, 0, 'DOI List:', header_format)
+                row += 1
+                
+                for i, doi in enumerate(dois[:20]):
+                    metadata_sheet.write(row + i, 0, f'{i+1}.', data_format)
+                    metadata_sheet.write(row + i, 1, doi, doi_format)
+                
+                row += min(20, len(dois)) + 1
+            
+            # Параметры анализа
+            metadata_sheet.write(row, 0, 'ANALYSIS PARAMETERS', workbook.add_format({
+                'bold': True,
+                'font_size': 12,
+                'font_color': '#2C3E50',
+                'bg_color': '#BDC3C7',
+                'border': 1
+            }))
+            metadata_sheet.merge_range(row, 1, row, 5, '', header_format)
+            row += 1
+            
+            if metadata.get('analysis_filters'):
+                filters = metadata['analysis_filters']
+                metadata_sheet.write(row, 0, 'Publication years:', header_format)
+                metadata_sheet.write(row, 1, ', '.join(map(str, filters.get('years', []))), data_format)
+                row += 1
+                
+                metadata_sheet.write(row, 0, 'Citation ranges:', header_format)
+                metadata_sheet.write(row, 1, filters.get('citation_ranges_display', '0-10'), data_format)
+                row += 1
+                
+                metadata_sheet.write(row, 0, 'Max citations:', header_format)
+                metadata_sheet.write(row, 1, filters.get('max_citations', 10), data_format)
+                row += 2
+            
+            # Ключевые слова
+            if metadata.get('keywords_used'):
+                keywords = metadata['keywords_used']
+                metadata_sheet.write(row, 0, 'KEYWORDS USED', workbook.add_format({
+                    'bold': True,
+                    'font_size': 12,
+                    'font_color': '#2C3E50',
+                    'bg_color': '#BDC3C7',
+                    'border': 1
+                }))
+                metadata_sheet.merge_range(row, 1, row, 5, '', header_format)
+                row += 1
+                
+                # Разбиваем ключевые слова на группы по 5
+                for i in range(0, len(keywords), 5):
+                    chunk = keywords[i:i+5]
+                    metadata_sheet.write(row, 0, f'Group {i//5 + 1}:', header_format)
+                    metadata_sheet.write(row, 1, ', '.join(chunk), data_format)
+                    row += 1
+            
+            # Инструкция по воспроизведению
+            row += 1
+            metadata_sheet.write(row, 0, 'HOW TO REPRODUCE', workbook.add_format({
+                'bold': True,
+                'font_size': 11,
+                'font_color': '#27AE60',
+                'bg_color': '#D5F4E6',
+                'border': 1
+            }))
+            metadata_sheet.merge_range(row, 1, row, 5, '', header_format)
+            row += 1
+            
+            reproduce_steps = [
+                "1. Use the same DOI identifiers as input",
+                "2. Select the same research topic",
+                "3. Apply identical filters:",
+                "   - Same publication years",
+                "   - Same citation ranges",
+                "   - Same keyword set",
+                "4. Run analysis in CTA Article Recommender Pro",
+                "",
+                "Note: Results may vary slightly due to data updates in OpenAlex"
+            ]
+            
+            for i, step in enumerate(reproduce_steps):
+                metadata_sheet.write(row + i, 0, step, data_format)
+            
+            # Настройка ширины колонок
+            metadata_sheet.set_column('A:A', 25)
+            metadata_sheet.set_column('B:F', 40)
+        
+        # ========== ВКЛАДКА С ДАННЫМИ ==========
         df = pd.DataFrame(data)
         df.to_excel(writer, sheet_name='Papers', index=False)
         
-        # Добавляем заголовок
-        workbook = writer.book
         worksheet = writer.sheets['Papers']
         
-        # Форматирование
+        # Форматирование заголовков
         header_format = workbook.add_format({
             'bold': True,
-            'bg_color': '#667eea',
+            'font_size': 11,
             'font_color': 'white',
-            'border': 1
+            'bg_color': '#667eea',
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter'
         })
         
         # Применяем к заголовкам
         for col_num, value in enumerate(df.columns.values):
             worksheet.write(0, col_num, value, header_format)
+        
+        # Форматирование данных
+        data_format = workbook.add_format({
+            'font_size': 9,
+            'border': 1,
+            'text_wrap': True,
+            'valign': 'top'
+        })
+        
+        citation_format = workbook.add_format({
+            'font_size': 9,
+            'border': 1,
+            'align': 'center',
+            'bold': True,
+            'font_color': '#E74C3C'
+        })
+        
+        relevance_format = workbook.add_format({
+            'font_size': 9,
+            'border': 1,
+            'align': 'center',
+            'bg_color': '#D5F4E6'
+        })
+        
+        # Применяем форматы к данным
+        for row_num in range(1, len(df) + 1):
+            for col_num in range(len(df.columns)):
+                cell_value = df.iat[row_num-1, col_num]
+                col_name = df.columns[col_num]
+                
+                if col_name in ['cited_by_count', 'Citations']:
+                    worksheet.write(row_num, col_num, cell_value, citation_format)
+                elif col_name in ['relevance_score', 'Relevance']:
+                    worksheet.write(row_num, col_num, cell_value, relevance_format)
+                else:
+                    worksheet.write(row_num, col_num, cell_value, data_format)
         
         # Авто-ширина колонок
         for i, col in enumerate(df.columns):
@@ -1091,8 +1339,8 @@ def generate_excel(data: List[dict]) -> bytes:
     
     return output.getvalue()
 
-def generate_pdf(data: List[dict], topic_name: str) -> bytes:
-    """Генерация PDF файла с улучшенным дизайном и активными гиперссылками"""
+def generate_pdf(data: List[dict], topic_name: str, metadata: Dict = None) -> bytes:
+    """Генерация PDF файла с улучшенным дизайном, активными гиперссылками и метаданными"""
     
     buffer = io.BytesIO()
     
@@ -1163,7 +1411,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         spaceAfter=4,
         alignment=TA_LEFT,
         fontName='Helvetica-Bold',
-        underline=True  # Показываем, что это ссылка
+        underline=True
     )
     
     # Стиль для авторов
@@ -1233,11 +1481,37 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         fontName='Helvetica-Oblique'
     )
     
+    # Стиль для информации о данных
+    data_info_style = ParagraphStyle(
+        'CustomDataInfo',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.HexColor('#8E44AD'),
+        spaceAfter=3,
+        alignment=TA_LEFT,
+        fontName='Helvetica',
+        backColor=colors.HexColor('#F4ECF7'),
+        borderPadding=5,
+        borderColor=colors.HexColor('#D2B4DE'),
+        borderWidth=1
+    )
+    
+    # Стиль для параметров
+    params_style = ParagraphStyle(
+        'CustomParams',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.HexColor('#2C3E50'),
+        spaceAfter=3,
+        alignment=TA_LEFT,
+        fontName='Helvetica',
+        leftIndent=10
+    )
+    
     story = []
     
     # ========== ЗАГОЛОВОЧНАЯ СТРАНИЦА ==========
     
-    # Логотип или заголовок
     story.append(Spacer(1, 2*cm))
     story.append(Paragraph("CTA Article Recommender Pro", title_style))
     story.append(Paragraph("Fresh Papers Analysis Report", subtitle_style))
@@ -1276,6 +1550,131 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # Разделитель страниц
     story.append(PageBreak())
     
+    # ========== СТРАНИЦА С МЕТАДАННЫМИ И ПАРАМЕТРАМИ ==========
+    
+    story.append(Paragraph("ANALYSIS METADATA & PARAMETERS", title_style))
+    story.append(Spacer(1, 0.5*cm))
+    
+    # Блок исходных данных
+    if metadata and metadata.get('original_dois'):
+        dois = metadata['original_dois']
+        
+        story.append(Paragraph("ORIGINAL INPUT DATA", ParagraphStyle(
+            'DataHeader',
+            parent=styles['Heading3'],
+            fontSize=12,
+            textColor=colors.HexColor('#8E44AD'),
+            spaceAfter=8,
+            alignment=TA_LEFT,
+            fontName='Helvetica-Bold'
+        )))
+        
+        story.append(Paragraph(f"<b>Number of DOI identifiers analyzed:</b> {len(dois)}", data_info_style))
+        
+        if len(dois) <= 10:
+            doi_list = "<br/>".join([f"• {doi}" for doi in dois])
+        else:
+            first_five = "<br/>".join([f"• {doi}" for doi in dois[:5]])
+            last_five = "<br/>".join([f"• {doi}" for doi in dois[-5:]])
+            doi_list = f"{first_five}<br/>...<br/>{last_five}"
+        
+        story.append(Paragraph(f"<b>DOI identifiers:</b><br/>{doi_list}", data_info_style))
+        story.append(Spacer(1, 0.5*cm))
+    
+    # Блок параметров анализа
+    if metadata and metadata.get('analysis_filters'):
+        filters = metadata['analysis_filters']
+        
+        story.append(Paragraph("ANALYSIS PARAMETERS", ParagraphStyle(
+            'ParamsHeader',
+            parent=styles['Heading3'],
+            fontSize=12,
+            textColor=colors.HexColor('#16A085'),
+            spaceAfter=8,
+            alignment=TA_LEFT,
+            fontName='Helvetica-Bold'
+        )))
+        
+        # Создаем таблицу с параметрами
+        params_data = [
+            ["Parameter", "Value"],
+            ["Publication years", ', '.join(map(str, filters.get('years', [])))],
+            ["Citation ranges", filters.get('citation_ranges_display', '0-10')],
+            ["Maximum citations", str(filters.get('max_citations', 10))],
+            ["Papers per topic", str(filters.get('max_works', 2000))],
+            ["Top papers limit", str(filters.get('top_n', 100))]
+        ]
+        
+        params_table = Table(params_data, colWidths=[doc.width/3, doc.width*2/3])
+        params_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#16A085')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D5DBDB')),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F4F4')]),
+        ]))
+        
+        story.append(params_table)
+        story.append(Spacer(1, 0.5*cm))
+    
+    # Блок ключевых слов
+    if metadata and metadata.get('keywords_used'):
+        keywords = metadata['keywords_used']
+        
+        story.append(Paragraph("KEYWORDS FOR RELEVANCE SCORING", ParagraphStyle(
+            'KeywordsHeader',
+            parent=styles['Heading3'],
+            fontSize=12,
+            textColor=colors.HexColor('#E74C3C'),
+            spaceAfter=8,
+            alignment=TA_LEFT,
+            fontName='Helvetica-Bold'
+        )))
+        
+        # Разбиваем ключевые слова на колонки
+        keywords_text = ""
+        for i, keyword in enumerate(keywords[:20], 1):
+            keywords_text += f"• {keyword} "
+            if i % 5 == 0:
+                keywords_text += "<br/>"
+        
+        story.append(Paragraph(keywords_text, keywords_style))
+        story.append(Spacer(1, 0.5*cm))
+    
+    # Блок воспроизведения
+    story.append(Paragraph("HOW TO REPRODUCE THESE RESULTS", ParagraphStyle(
+        'ReproduceHeader',
+        parent=styles['Heading3'],
+        fontSize=12,
+        textColor=colors.HexColor('#3498DB'),
+        spaceAfter=8,
+        alignment=TA_LEFT,
+        fontName='Helvetica-Bold'
+    )))
+    
+    reproduce_text = """
+    1. <b>Input Data:</b> Use the same DOI identifiers as listed above<br/>
+    2. <b>Topic Selection:</b> Choose the same research topic<br/>
+    3. <b>Filters:</b> Apply identical analysis parameters<br/>
+    4. <b>Analysis:</b> Run the analysis in CTA Article Recommender Pro<br/>
+    <br/>
+    <i>Note: Results may vary slightly due to data updates in OpenAlex database.</i>
+    """
+    
+    story.append(Paragraph(reproduce_text, params_style))
+    story.append(Spacer(1, 1*cm))
+    
+    # QR код (опционально, можно добавить позже)
+    # story.append(Paragraph("Scan to access the tool:", details_style))
+    # Здесь можно добавить QR код, если есть URL
+    
+    story.append(PageBreak())
+    
     # ========== КРАТКОЕ СОДЕРЖАНИЕ ==========
     
     story.append(Paragraph("TABLE OF CONTENTS", title_style))
@@ -1283,16 +1682,13 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     
     # Создаем оглавление
     toc_items = []
-    for i in range(min(50, len(data))):  # Ограничиваем 50 записями для читаемости
-        # Убираем все HTML-теги из заголовков для оглавления
+    for i in range(min(50, len(data))):
         title = data[i].get('title', 'Untitled')
-        # Удаляем HTML-теги и сущности
-        title_clean = re.sub(r'<[^>]+>', '', title)  # Удаляем HTML-теги
-        # Также можно заменить HTML-сущности на обычные символы
+        title_clean = re.sub(r'<[^>]+>', '', title)
         title_clean = title_clean.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         toc_items.append(f"{i+1}. {title_clean[:80]}...")
     
-    toc_text = "<br/>".join(toc_items[:20])  # Первые 20 в оглавлении
+    toc_text = "<br/>".join(toc_items[:20])
     story.append(Paragraph(toc_text, details_style))
     
     if len(data) > 20:
@@ -1305,8 +1701,10 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     story.append(Paragraph("DETAILED PAPER ANALYSIS", title_style))
     story.append(Spacer(1, 0.5*cm))
     
-    # Обрабатываем каждую статью (ограничиваем 50 для читаемости)
-    for i, work in enumerate(data[:50], 1):
+    # Ограничиваем 50 статьями для читаемости
+    display_data = data[:50]
+    
+    for i, work in enumerate(display_data, 1):
         # Заголовок статьи с гиперссылкой
         title = work.get('title', 'No title available')
         doi = work.get('doi', '')
@@ -1357,13 +1755,27 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
             story.append(Paragraph(f"<b>DOI:</b> {doi_link}", details_style))
         
         # Разделитель между статьями
-        if i < min(50, len(data)):
+        if i < len(display_data):
             story.append(Paragraph("─" * 80, separator_style))
             story.append(Spacer(1, 0.2*cm))
     
+    # Если есть еще статьи, показываем информацию
+    if len(data) > 50:
+        story.append(Spacer(1, 0.5*cm))
+        story.append(Paragraph(f"Note: Showing 50 out of {len(data)} papers. "
+                              f"Full list available in CSV/Excel export.", 
+                             ParagraphStyle(
+                                 'NoteStyle',
+                                 parent=styles['Normal'],
+                                 fontSize=9,
+                                 textColor=colors.HexColor('#7F8C8D'),
+                                 alignment=TA_CENTER,
+                                 fontName='Helvetica-Oblique'
+                             )))
+    
     # ========== СТАТИСТИЧЕСКАЯ СТРАНИЦА ==========
     
-    if len(data) > 10:  # Добавляем статистику только если есть достаточное количество данных
+    if len(data) > 10:
         story.append(PageBreak())
         story.append(Paragraph("STATISTICAL SUMMARY", title_style))
         story.append(Spacer(1, 0.5*cm))
@@ -1413,7 +1825,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
                     year_counts[year] = year_counts.get(year, 0) + 1
                 
                 sorted_years = sorted(year_counts.items())
-                year_data = [["Year", "Number of Papers"]] + [[str(y), str(c)] for y, c in sorted_years[-10:]]  # Последние 10 лет
+                year_data = [["Year", "Number of Papers"]] + [[str(y), str(c)] for y, c in sorted_years[-10:]]
                 
                 if len(year_data) > 1:
                     story.append(Paragraph("Publications by Year (Last 10 years)", subtitle_style))
@@ -1470,6 +1882,19 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     for note in final_notes:
         story.append(Paragraph(f"• {note}", details_style))
     
+    # Информация о воспроизводимости
+    story.append(Spacer(1, 0.5*cm))
+    story.append(Paragraph("REPRODUCIBILITY INFORMATION", subtitle_style))
+    reprod_info = [
+        f"Report generated on: {current_date}",
+        f"Analysis parameters saved in metadata section",
+        f"Use identical inputs and filters to reproduce results",
+        f"Report ID: {hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12].upper()}"
+    ]
+    
+    for info in reprod_info:
+        story.append(Paragraph(f"• {info}", details_style))
+    
     # Нижний колонтитул на последней странице
     story.append(Spacer(1, 2*cm))
     story.append(Paragraph("© CTA Article Recommender Pro - https://chimicatechnoacta.ru", footer_style))
@@ -1488,278 +1913,412 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     
     return buffer.getvalue()
 
-def generate_txt(data: List[dict], topic_name: str) -> str:
-    """Генерация TXT файла с улучшенным форматированием и структурой"""
+def generate_txt(data: List[dict], topic_name: str, metadata: Dict = None) -> str:
+    """Генерация TXT файла с улучшенным форматированием, структурой и цветными элементами"""
     
     output = []
     
-    # ========== ЗАГОЛОВОК ==========
-    output.append("=" * 80)
-    output.append("CTA Article Recommender Pro")
-    output.append("Under-Cited Papers Analysis Report")
-    output.append("=" * 80)
+    # ANSI цветовые коды для терминалов, поддерживающих цвета
+    # Если терминал не поддерживает цвета, они будут игнорироваться
+    class Colors:
+        HEADER = '\033[95m'
+        BLUE = '\033[94m'
+        GREEN = '\033[92m'
+        YELLOW = '\033[93m'
+        RED = '\033[91m'
+        PURPLE = '\033[95m'
+        CYAN = '\033[96m'
+        WHITE = '\033[97m'
+        BOLD = '\033[1m'
+        UNDERLINE = '\033[4m'
+        END = '\033[0m'
+        BG_BLUE = '\033[44m'
+        BG_GREEN = '\033[42m'
+        BG_YELLOW = '\033[43m'
+        BG_RED = '\033[41m'
+    
+    # Определяем, поддерживает ли терминал цвета (можно отключить для файла)
+    use_colors = True  # Можно сделать опцией
+    
+    def colorize(text, color_code):
+        return f"{color_code}{text}{Colors.END}" if use_colors else text
+    
+    # ========== ЗАГОЛОВОК С ЦВЕТНЫМ БАННЕРОМ ==========
+    output.append(colorize("=" * 100, Colors.CYAN))
+    output.append(colorize("  ██████╗████████╗ █████╗      █████╗ ██████╗ ████████╗██╗ ██████╗███████╗  ", Colors.BLUE))
+    output.append(colorize(" ██╔════╝╚══██╔══╝██╔══██╗    ██╔══██╗██╔══██╗╚══██╔══╝██║██╔════╝██╔════╝  ", Colors.BLUE))
+    output.append(colorize(" ██║        ██║   ███████║    ███████║██████╔╝   ██║   ██║██║     █████╗    ", Colors.BLUE))
+    output.append(colorize(" ██║        ██║   ██╔══██║    ██╔══██║██╔══██╗   ██║   ██║██║     ██╔══╝    ", Colors.BLUE))
+    output.append(colorize(" ╚██████╗   ██║   ██║  ██║    ██║  ██║██║  ██║   ██║   ██║╚██████╗███████╗  ", Colors.BLUE))
+    output.append(colorize("  ╚═════╝   ╚═╝   ╚═╝  ╚═╝    ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝╚══════╝  ", Colors.BLUE))
+    output.append("")
+    output.append(colorize("                    ARTICLE RECOMMENDER PRO - ANALYSIS REPORT", Colors.BOLD + Colors.WHITE))
+    output.append(colorize("                    Fresh Papers Analysis for Research Discovery", Colors.YELLOW))
+    output.append(colorize("=" * 100, Colors.CYAN))
     output.append("")
     
     # ========== ИНФОРМАЦИЯ О ТЕМЕ ==========
-    output.append("RESEARCH TOPIC:")
-    output.append(f"  {topic_name.upper()}")
+    output.append(colorize("📚 RESEARCH TOPIC:", Colors.BOLD + Colors.PURPLE))
+    output.append(colorize(f"  {'═' * 50}", Colors.PURPLE))
+    output.append(colorize(f"  {topic_name.upper()}", Colors.BOLD + Colors.WHITE))
+    output.append(colorize(f"  {'═' * 50}", Colors.PURPLE))
     output.append("")
     
-    # ========== МЕТА-ИНФОРМАЦИЯ ==========
+    # ========== МЕТА-ИНФОРМАЦИЯ С ЦВЕТНЫМИ ИКОНКАМИ ==========
     current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    output.append("REPORT INFORMATION:")
-    output.append(f"  Generated: {current_date}")
-    output.append(f"  Papers analyzed: {len(data)}")
+    output.append(colorize("📋 REPORT INFORMATION:", Colors.BOLD + Colors.CYAN))
+    output.append(f"  {colorize('🕒', Colors.YELLOW)} Generated: {colorize(current_date, Colors.GREEN)}")
+    output.append(f"  {colorize('📄', Colors.BLUE)} Papers analyzed: {colorize(str(len(data)), Colors.GREEN)}")
     
     if data:
         avg_citations = np.mean([w.get('cited_by_count', 0) for w in data])
         oa_count = sum(1 for w in data if w.get('is_oa'))
         recent_count = sum(1 for w in data if w.get('publication_year', 0) >= datetime.now().year - 2)
         
-        output.append(f"  Average citations: {avg_citations:.2f}")
-        output.append(f"  Open Access papers: {oa_count}")
-        output.append(f"  Recent papers (≤2 years): {recent_count}")
+        output.append(f"  {colorize('📊', Colors.PURPLE)} Average citations: {colorize(f'{avg_citations:.2f}', Colors.GREEN)}")
+        output.append(f"  {colorize('🔓', Colors.GREEN)} Open Access papers: {colorize(str(oa_count), Colors.GREEN)}")
+        output.append(f"  {colorize('🔄', Colors.BLUE)} Recent papers (≤2 years): {colorize(str(recent_count), Colors.GREEN)}")
     
     output.append("")
-    output.append("© CTA - Chemical Technology Acta")
-    output.append("https://chimicatechnoacta.ru")
-    output.append("Developed by daM©")
-    output.append("")
-    output.append("=" * 80)
+    
+    # ========== МЕТАДАННЫЕ ОБ ИСХОДНЫХ ДАННЫХ ==========
+    if metadata:
+        output.append(colorize("🔍 INPUT DATA & PARAMETERS:", Colors.BOLD + Colors.PURPLE))
+        output.append(colorize("  ──────────────────────────────────────────────────────────", Colors.PURPLE))
+        
+        if metadata.get('original_dois'):
+            dois = metadata['original_dois']
+            output.append(f"  {colorize('🔢', Colors.CYAN)} Original DOI identifiers: {colorize(str(len(dois)), Colors.GREEN)}")
+            output.append(f"  {colorize('📝', Colors.YELLOW)} Sample DOIs analyzed:")
+            
+            # Показываем первые и последние 3 DOI
+            for i, doi in enumerate(dois[:3]):
+                output.append(f"     {i+1}. {colorize(doi, Colors.BLUE)}")
+            
+            if len(dois) > 3:
+                output.append(f"     ... and {len(dois)-3} more")
+                if len(dois) > 6:
+                    output.append(f"     Last 3: {colorize(dois[-3], Colors.BLUE)}, {colorize(dois[-2], Colors.BLUE)}, {colorize(dois[-1], Colors.BLUE)}")
+        
+        if metadata.get('analysis_filters'):
+            filters = metadata['analysis_filters']
+            output.append(f"  {colorize('⚙️', Colors.YELLOW)} Analysis parameters:")
+            output.append(f"     • {colorize('Publication years:', Colors.WHITE)} {colorize(', '.join(map(str, filters.get('years', []))), Colors.GREEN)}")
+            output.append(f"     • {colorize('Citation ranges:', Colors.WHITE)} {colorize(filters.get('citation_ranges_display', '0-10'), Colors.GREEN)}")
+            output.append(f"     • {colorize('Max citations:', Colors.WHITE)} {colorize(str(filters.get('max_citations', 10)), Colors.GREEN)}")
+        
+        if metadata.get('keywords_used'):
+            keywords = metadata['keywords_used']
+            output.append(f"  {colorize('🏷️', Colors.RED)} Keywords for relevance scoring:")
+            keywords_line = ', '.join(keywords[:10])
+            output.append(f"     {colorize(keywords_line, Colors.YELLOW)}")
+            if len(keywords) > 10:
+                output.append(f"     ... and {len(keywords)-10} more")
+        
+        output.append("")
+    
+    # ========== КАК ВОСПРОИЗВЕСТИ РЕЗУЛЬТАТЫ ==========
+    output.append(colorize("🔄 HOW TO REPRODUCE:", Colors.BOLD + Colors.GREEN))
+    output.append(colorize("  ──────────────────────────────────────────────────────────", Colors.GREEN))
+    reproduce_steps = [
+        f"1. {colorize('Use the same DOI identifiers', Colors.WHITE)} as listed above",
+        f"2. {colorize('Select the same research topic', Colors.WHITE)} in the tool",
+        f"3. {colorize('Apply identical analysis filters:', Colors.WHITE)}",
+        f"   • Same publication years",
+        f"   • Same citation ranges",
+        f"   • Same maximum citations limit",
+        f"4. {colorize('Run analysis in CTA Article Recommender Pro', Colors.WHITE)}",
+        "",
+        f"{colorize('Note:', Colors.YELLOW)} Results may vary slightly due to data updates in OpenAlex database."
+    ]
+    output.extend(reproduce_steps)
     output.append("")
     
-    # ========== ОГЛАВЛЕНИЕ ==========
-    output.append("TABLE OF CONTENTS")
-    output.append("-" * 40)
+    # ========== КОПИРАЙТ И ИНФОРМАЦИЯ ==========
+    output.append(colorize("© CTA - Chimica Techno Acta", Colors.CYAN))
+    output.append(colorize("🌐 https://chimicatechnoacta.ru", Colors.BLUE))
+    output.append(colorize("👨‍💻 Developed by daM©", Colors.PURPLE))
+    output.append("")
+    output.append(colorize("=" * 100, Colors.CYAN))
+    output.append("")
     
-    # Группируем статьи по релевантности
+    # ========== ОГЛАВЛЕНИЕ С ЦВЕТНЫМИ РАЗДЕЛАМИ ==========
+    output.append(colorize("📑 TABLE OF CONTENTS", Colors.BOLD + Colors.PURPLE))
+    output.append(colorize("═" * 50, Colors.PURPLE))
+    
+    # Группируем статьи по релевантности с цветовыми индикаторами
     high_relevance = [w for w in data if w.get('relevance_score', 0) >= 8]
     medium_relevance = [w for w in data if 5 <= w.get('relevance_score', 0) < 8]
     low_relevance = [w for w in data if w.get('relevance_score', 0) < 5]
     
-    output.append(f"  High Relevance (Score ≥ 8): {len(high_relevance)} papers")
-    output.append(f"  Medium Relevance (5-7): {len(medium_relevance)} papers")
-    output.append(f"  Low Relevance (Score < 5): {len(low_relevance)} papers")
+    output.append(f"  {colorize('★', Colors.YELLOW)} {colorize('High Relevance (Score ≥ 8):', Colors.BOLD + Colors.GREEN)} {colorize(f'{len(high_relevance):3d} papers', Colors.WHITE)}")
+    output.append(f"  {colorize('☆', Colors.YELLOW)} {colorize('Medium Relevance (5-7):', Colors.BOLD + Colors.YELLOW)} {colorize(f'{len(medium_relevance):3d} papers', Colors.WHITE)}")
+    output.append(f"  {colorize('○', Colors.YELLOW)} {colorize('Low Relevance (Score < 5):', Colors.BOLD + Colors.RED)} {colorize(f'{len(low_relevance):3d} papers', Colors.WHITE)}")
     output.append("")
     
-    # Быстрый обзор по годам
+    # Быстрый обзор по годам с цветовыми полосками
     if data:
         years = [w.get('publication_year', 0) for w in data if w.get('publication_year', 0) > 1900]
         if years:
-            output.append("PUBLICATION YEAR DISTRIBUTION:")
+            output.append(colorize("📅 PUBLICATION YEAR DISTRIBUTION:", Colors.BOLD + Colors.CYAN))
             year_counts = {}
             for year in years:
                 year_counts[year] = year_counts.get(year, 0) + 1
             
-            for year in sorted(year_counts.keys(), reverse=True)[:5]:  # Топ 5 последних лет
-                output.append(f"  {year}: {year_counts[year]} papers")
-            output.append("")
-    
-    output.append("=" * 80)
+            max_count = max(year_counts.values()) if year_counts else 1
+            
+            for year in sorted(year_counts.keys(), reverse=True)[:5]:
+                count = year_counts[year]
+                percentage = (count / len(data)) * 100
+                bar_length = int((count / max_count) * 30)
+                bar = colorize("█" * bar_length, Colors.GREEN)
+                output.append(f"  {colorize(str(year), Colors.BOLD)}: {bar} {count:3d} papers ({percentage:5.1f}%)")
+    output.append("")
+    output.append(colorize("=" * 100, Colors.CYAN))
     output.append("")
     
-    # ========== ДЕТАЛЬНЫЙ АНАЛИЗ СТАТЕЙ ==========
-    output.append("DETAILED PAPER ANALYSIS")
-    output.append("=" * 80)
+    # ========== ДЕТАЛЬНЫЙ АНАЛИЗ СТАТЕЙ С ЦВЕТОВОЙ КОДИРОВКОЙ ==========
+    output.append(colorize("📊 DETAILED PAPER ANALYSIS", Colors.BOLD + Colors.PURPLE))
+    output.append(colorize("=" * 100, Colors.CYAN))
     output.append("")
     
     for i, work in enumerate(data, 1):
-        # Номер и релевантность
+        # Цветовая индикация релевантности
         relevance_score = work.get('relevance_score', 0)
-        relevance_stars = "★" * min(int(relevance_score), 5) + "☆" * max(5 - int(relevance_score), 0)
+        if relevance_score >= 8:
+            relevance_color = Colors.GREEN
+            relevance_icon = "★"
+        elif relevance_score >= 5:
+            relevance_color = Colors.YELLOW
+            relevance_icon = "☆"
+        else:
+            relevance_color = Colors.RED
+            relevance_icon = "○"
         
-        output.append(f"PAPER #{i:03d}")
-        output.append(f"Relevance: {relevance_score}/10 {relevance_stars}")
-        output.append("-" * 40)
+        # Цветовая индикация цитирований
+        citation_count = work.get('cited_by_count', 0)
+        if citation_count == 0:
+            citation_color = Colors.GREEN
+            citation_icon = "🆕"
+        elif citation_count <= 3:
+            citation_color = Colors.GREEN
+            citation_icon = "📈"
+        elif citation_count <= 10:
+            citation_color = Colors.YELLOW
+            citation_icon = "📊"
+        else:
+            citation_color = Colors.RED
+            citation_icon = "🔥"
+        
+        # Номер и релевантность с цветом
+        output.append(colorize(f"PAPER #{i:03d}", Colors.BOLD + Colors.BLUE))
+        output.append(colorize(f"┌{'─' * 98}┐", Colors.CYAN))
         
         # Заголовок
         title = work.get('title', 'No title available')
-        output.append(f"TITLE: {title}")
+        output.append(f"│ {colorize('📝 TITLE:', Colors.BOLD)} {title[:90]}{'...' if len(title) > 90 else ''}")
         
         # Авторы
         authors = work.get('authors', [])
         if authors:
-            output.append(f"AUTHORS: {', '.join(authors[:3])}")
+            output.append(f"│ {colorize('👤 AUTHORS:', Colors.BOLD)} {', '.join(authors[:3])}")
             if len(authors) > 3:
-                output.append(f"         + {len(authors) - 3} more authors")
+                output.append(f"│ {' ' * 11}+ {len(authors) - 3} more authors")
         
-        # Основные метрики
-        citations = work.get('cited_by_count', 0)
+        # Основные метрики в цветных блоках
         year = work.get('publication_year', 'N/A')
         journal = work.get('journal_name', 'N/A')
         
-        output.append("METRICS:")
-        output.append(f"  • Citations: {citations}")
-        output.append(f"  • Year: {year}")
-        output.append(f"  • Journal/Conference: {journal}")
-        output.append(f"  • Open Access: {'Yes' if work.get('is_oa') else 'No'}")
+        metrics_line = f"│ {colorize('📊 METRICS:', Colors.BOLD)} "
+        metrics_line += f"{citation_icon} {colorize(f'{citation_count} citations', citation_color)} | "
+        metrics_line += f"{relevance_icon} {colorize(f'Score: {relevance_score}/10', relevance_color)} | "
+        metrics_line += f"📅 {colorize(f'Year: {year}', Colors.CYAN)} | "
+        metrics_line += f"🏛️ {colorize(journal[:30], Colors.PURPLE)}"
+        output.append(metrics_line)
+        
+        # Дополнительная информация
+        oa_status = "✅ Open Access" if work.get('is_oa') else "❌ Closed Access"
+        output.append(f"│ {colorize('🔓 ACCESS:', Colors.BOLD)} {colorize(oa_status, Colors.GREEN if work.get('is_oa') else Colors.RED)}")
         
         # Ключевые слова
         if work.get('matched_keywords'):
             keywords = work.get('matched_keywords', [])
-            output.append(f"KEYWORDS: {', '.join(keywords[:5])}")
+            output.append(f"│ {colorize('🏷️ KEYWORDS:', Colors.BOLD)} {', '.join(keywords[:5])}")
             if len(keywords) > 5:
-                output.append(f"          + {len(keywords) - 5} more keywords")
+                output.append(f"│ {' ' * 12}+ {len(keywords) - 5} more")
         
         # DOI и ссылка
         doi = work.get('doi', '')
         doi_url = work.get('doi_url', '')
         
         if doi:
-            output.append(f"DOI: {doi}")
+            output.append(f"│ {colorize('🔗 DOI:', Colors.BOLD)} {colorize(doi, Colors.BLUE)}")
             if doi_url:
-                output.append(f"LINK: {doi_url}")
+                output.append(f"│ {' ' * 8}{colorize('🔗 Link:', Colors.BOLD)} {colorize(doi_url, Colors.BLUE + Colors.UNDERLINE)}")
         
-        # Абстракт (если есть и короткий)
-        abstract = work.get('abstract', '')
-        if abstract and len(abstract) < 300:
-            output.append("ABSTRACT:")
-            # Форматируем абстракт с переносами строк
-            words = abstract.split()
-            lines = []
-            current_line = ""
-            for word in words:
-                if len(current_line) + len(word) + 1 <= 70:
-                    current_line += " " + word if current_line else word
-                else:
-                    lines.append("  " + current_line)
-                    current_line = word
-            if current_line:
-                lines.append("  " + current_line)
-            output.extend(lines)
+        output.append(colorize(f"└{'─' * 98}┘", Colors.CYAN))
         
         # Разделитель между статьями
         if i < len(data):
-            output.append("")
-            output.append("─" * 60)
+            output.append(colorize("  " + "─" * 98, Colors.CYAN))
             output.append("")
     
-    output.append("=" * 80)
+    output.append("")
+    output.append(colorize("=" * 100, Colors.CYAN))
     output.append("")
     
-    # ========== СТАТИСТИЧЕСКАЯ СВОДКА ==========
+    # ========== СТАТИСТИЧЕСКАЯ СВОДКА С ГРАФИКАМИ ASCII ==========
     if len(data) > 5:
-        output.append("STATISTICAL SUMMARY")
-        output.append("=" * 80)
+        output.append(colorize("📈 STATISTICAL SUMMARY", Colors.BOLD + Colors.PURPLE))
+        output.append(colorize("=" * 100, Colors.CYAN))
         output.append("")
         
         citations_list = [w.get('cited_by_count', 0) for w in data]
         relevance_list = [w.get('relevance_score', 0) for w in data]
         
         if citations_list:
-            output.append("CITATION ANALYSIS:")
-            output.append(f"  Average: {np.mean(citations_list):.2f}")
-            output.append(f"  Median: {np.median(citations_list):.2f}")
-            output.append(f"  Minimum: {min(citations_list)}")
-            output.append(f"  Maximum: {max(citations_list)}")
-            output.append(f"  Standard Deviation: {np.std(citations_list):.2f}")
+            output.append(colorize("📊 CITATION ANALYSIS:", Colors.BOLD + Colors.CYAN))
+            stats = [
+                ("Average", np.mean(citations_list)),
+                ("Median", np.median(citations_list)),
+                ("Minimum", min(citations_list)),
+                ("Maximum", max(citations_list)),
+                ("Std Dev", np.std(citations_list))
+            ]
+            
+            for name, value in stats:
+                if isinstance(value, float):
+                    value_str = f"{value:.2f}"
+                else:
+                    value_str = str(value)
+                output.append(f"  {colorize(name + ':', Colors.BOLD):12} {colorize(value_str, Colors.GREEN)}")
+            
             output.append("")
             
-            # Распределение по количеству цитирований
-            output.append("CITATION DISTRIBUTION:")
+            # ASCII гистограмма распределения цитирований
+            output.append(colorize("📊 CITATION DISTRIBUTION:", Colors.BOLD + Colors.CYAN))
             ranges = [(0, 0), (1, 2), (3, 5), (6, 10), (11, 20), (21, 50), (51, 100), (101, 1000)]
+            max_count = 0
+            
+            # Сначала собираем данные
+            range_data = []
             for min_cit, max_cit in ranges:
                 count = sum(1 for w in data if min_cit <= w.get('cited_by_count', 0) <= max_cit)
                 if count > 0:
+                    max_count = max(max_count, count)
                     if min_cit == max_cit:
                         range_str = f"Exactly {min_cit}"
                     else:
                         range_str = f"{min_cit}-{max_cit}"
-                    percentage = (count / len(data)) * 100
-                    output.append(f"  {range_str:12} citations: {count:3d} papers ({percentage:5.1f}%)")
+                    range_data.append((range_str, count))
+            
+            # Выводим гистограмму
+            for range_str, count in range_data:
+                bar_length = int((count / max_count) * 40) if max_count > 0 else 0
+                bar = colorize("█" * bar_length, Colors.GREEN)
+                percentage = (count / len(data)) * 100
+                output.append(f"  {range_str:12} citations: {bar} {count:3d} papers ({percentage:5.1f}%)")
+            
             output.append("")
         
         if relevance_list:
-            output.append("RELEVANCE SCORE ANALYSIS:")
-            output.append(f"  Average: {np.mean(relevance_list):.2f}/10")
-            output.append(f"  Median: {np.median(relevance_list):.2f}/10")
+            output.append(colorize("🎯 RELEVANCE SCORE ANALYSIS:", Colors.BOLD + Colors.PURPLE))
             
-            # Распределение по релевантности
+            # Распределение по релевантности с цветными звездами
             relevance_counts = {score: 0 for score in range(1, 11)}
             for score in relevance_list:
                 rounded = min(int(score), 10)
                 relevance_counts[rounded] = relevance_counts.get(rounded, 0) + 1
             
-            output.append("  Distribution:")
             for score in range(10, 0, -1):
                 count = relevance_counts.get(score, 0)
                 if count > 0:
                     percentage = (count / len(data)) * 100
-                    stars = "★" * min(score, 5) + "☆" * max(5 - score, 0)
-                    output.append(f"    Score {score:2d}/10 {stars}: {count:3d} papers ({percentage:5.1f}%)")
+                    stars = colorize("★" * min(score, 5), Colors.YELLOW) + colorize("☆" * max(5 - score, 0), Colors.WHITE)
+                    bar_length = int((count / max(relevance_counts.values())) * 30) if max(relevance_counts.values()) > 0 else 0
+                    bar = colorize("█" * bar_length, Colors.YELLOW)
+                    output.append(f"  Score {score:2d}/10 {stars}: {bar} {count:3d} papers ({percentage:5.1f}%)")
+            
             output.append("")
     
-    # ========== ТОП РЕКОМЕНДАЦИЙ ==========
+    # ========== ТОП РЕКОМЕНДАЦИЙ С ЦВЕТНЫМИ БЕЙДЖАМИ ==========
     if len(data) > 10:
-        output.append("TOP RECOMMENDATIONS")
-        output.append("=" * 80)
+        output.append(colorize("🏆 TOP RECOMMENDATIONS", Colors.BOLD + Colors.GREEN))
+        output.append(colorize("=" * 100, Colors.CYAN))
         output.append("")
         
-        # Сортируем по релевантности, затем по годам (новые первыми)
-        sorted_data = sorted(data, key=lambda x: (-x.get('relevance_score', 0), 
-                                                  -x.get('publication_year', 0)))
+        # Сортируем по разным критериям
+        output.append(colorize("🎖️ Highest Relevance & Most Recent:", Colors.BOLD + Colors.YELLOW))
+        sorted_by_relevance = sorted(data, key=lambda x: (-x.get('relevance_score', 0), 
+                                                          -x.get('publication_year', 0)))
         
-        output.append("Highest Relevance & Most Recent:")
-        for i, work in enumerate(sorted_data[:5], 1):
+        for i, work in enumerate(sorted_by_relevance[:5], 1):
             title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
-            output.append(f"  {i}. {title}")
-            output.append(f"     Year: {work.get('publication_year', 'N/A')}, "
-                         f"Citations: {work.get('cited_by_count', 0)}, "
-                         f"Score: {work.get('relevance_score', 0)}/10")
+            badge = colorize(f"#{i}", Colors.BOLD + Colors.WHITE + Colors.BG_BLUE)
+            output.append(f"  {badge} {title}")
+            output.append(f"     {colorize('Year:', Colors.CYAN)} {work.get('publication_year', 'N/A')} | "
+                         f"{colorize('Citations:', Colors.GREEN)} {work.get('cited_by_count', 0)} | "
+                         f"{colorize('Score:', Colors.YELLOW)} {work.get('relevance_score', 0)}/10")
         
         output.append("")
-        output.append("Most Cited (among under-cited):")
-        # Берем статьи с ненулевыми цитированиями
+        
+        # Самые цитируемые среди малоцитируемых
+        output.append(colorize("🔥 Most Cited (among under-cited):", Colors.BOLD + Colors.RED))
         cited_papers = [w for w in data if w.get('cited_by_count', 0) > 0]
         if cited_papers:
             most_cited = sorted(cited_papers, key=lambda x: -x.get('cited_by_count', 0))
             for i, work in enumerate(most_cited[:3], 1):
                 title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
-                output.append(f"  {i}. {title}")
-                output.append(f"     Citations: {work.get('cited_by_count', 0)}, "
-                             f"Year: {work.get('publication_year', 'N/A')}")
+                badge = colorize(f"#{i}", Colors.BOLD + Colors.WHITE + Colors.BG_RED)
+                output.append(f"  {badge} {title}")
+                output.append(f"     {colorize('Citations:', Colors.RED)} {work.get('cited_by_count', 0)} | "
+                             f"{colorize('Year:', Colors.CYAN)} {work.get('publication_year', 'N/A')}")
         
         output.append("")
-        output.append("Newest Publications:")
+        
+        # Самые новые публикации
+        output.append(colorize("🆕 Newest Publications:", Colors.BOLD + Colors.BLUE))
         recent_papers = sorted(data, key=lambda x: -x.get('publication_year', 0))
         for i, work in enumerate(recent_papers[:3], 1):
             title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
-            output.append(f"  {i}. {title}")
-            output.append(f"     Year: {work.get('publication_year', 'N/A')}, "
-                         f"Citations: {work.get('cited_by_count', 0)}")
+            badge = colorize(f"#{i}", Colors.BOLD + Colors.WHITE + Colors.BG_GREEN)
+            output.append(f"  {badge} {title}")
+            output.append(f"     {colorize('Year:', Colors.GREEN)} {work.get('publication_year', 'N/A')} | "
+                         f"{colorize('Citations:', Colors.CYAN)} {work.get('cited_by_count', 0)}")
     
-    # ========== ЗАКЛЮЧЕНИЕ ==========
-    output.append("=" * 80)
-    output.append("CONCLUSION")
-    output.append("=" * 80)
+    # ========== ЗАКЛЮЧЕНИЕ С ЦВЕТНЫМИ РАЗДЕЛАМИ ==========
+    output.append(colorize("=" * 100, Colors.CYAN))
+    output.append(colorize("💡 CONCLUSION & RECOMMENDATIONS", Colors.BOLD + Colors.PURPLE))
+    output.append(colorize("=" * 100, Colors.CYAN))
     output.append("")
     
     conclusions = [
-        f"This analysis identified {len(data)} under-cited papers in '{topic_name}'.",
+        colorize("🔍 KEY INSIGHTS:", Colors.BOLD + Colors.CYAN),
+        f"• {colorize('Emerging Research:', Colors.GREEN)} These papers may represent new trends",
+        f"• {colorize('Hidden Gems:', Colors.YELLOW)} Low citations don't indicate low quality",
+        f"• {colorize('Review Starting Points:', Colors.BLUE)} Ideal for literature reviews",
+        f"• {colorize('Cross-disciplinary:', Colors.PURPLE)} May contain novel methodologies",
         "",
-        "KEY INSIGHTS:",
-        "• These papers may represent emerging research trends",
-        "• Low citation counts don't necessarily indicate low quality",
-        "• Consider these for literature reviews and gap analysis",
-        "• They may contain novel methodologies or cross-disciplinary insights",
+        colorize("🚀 RECOMMENDED ACTIONS:", Colors.BOLD + Colors.GREEN),
+        f"1. {colorize('Review high-relevance papers', Colors.WHITE)} for potential citations",
+        f"2. {colorize('Use as starting points', Colors.WHITE)} for systematic reviews",
+        f"3. {colorize('Identify research gaps', Colors.WHITE)} and opportunities",
+        f"4. {colorize('Track emerging authors', Colors.WHITE)} in this field",
         "",
-        "RECOMMENDED ACTIONS:",
-        "1. Review high-relevance papers for potential citations",
-        "2. Use as starting points for systematic reviews",
-        "3. Identify research gaps and opportunities",
-        "4. Track emerging authors in this field",
+        colorize("📋 REPORT METADATA:", Colors.BOLD + Colors.YELLOW),
+        f"• {colorize('Generated by:', Colors.WHITE)} CTA Article Recommender Pro",
+        f"• {colorize('Report ID:', Colors.WHITE)} {hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12].upper()}",
+        f"• {colorize('Data source:', Colors.WHITE)} OpenAlex API",
+        f"• {colorize('Analysis date:', Colors.WHITE)} {current_date}",
+        f"• {colorize('Input DOIs:', Colors.WHITE)} {metadata.get('original_dois_count', 'Unknown') if metadata else 'Unknown'}",
+        f"• {colorize('Analysis filters:', Colors.WHITE)} Preserved in metadata section",
         "",
-        "REPORT METADATA:",
-        f"• Generated by: CTA Article Recommender Pro",
-        f"• Report ID: {hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12].upper()}",
-        f"• Data source: OpenAlex API",
-        f"• Analysis date: {current_date}",
+        colorize("© CTA - Chimica Techno Acta | 🌐 https://chimicatechnoacta.ru", Colors.CYAN),
+        colorize("📝 This report is for research purposes only.", Colors.YELLOW),
+        colorize("✅ Always verify information with original sources.", Colors.GREEN),
         "",
-        "© CTA - Chemical Technology Acta | https://chimicatechnoacta.ru",
-        "This report is for research purposes only.",
-        "Always verify information with original sources.",
-        "",
-        "End of Report"
+        colorize("📌 End of Report", Colors.BOLD + Colors.PURPLE),
+        colorize("=" * 100, Colors.CYAN)
     ]
     
     output.extend(conclusions)
@@ -2387,6 +2946,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
