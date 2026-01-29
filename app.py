@@ -24,10 +24,15 @@ from typing import List, Dict, Tuple, Optional, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import io
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.pagesizes import A4, letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from reportlab.lib.units import inch, cm
+from reportlab.pdfgen import canvas
+from reportlab.platypus import Image
+from reportlab.platypus.flowables import Flowable
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 import xlsxwriter
 
 # Настройка логирования
@@ -977,77 +982,392 @@ def generate_excel(data: List[dict]) -> bytes:
     return output.getvalue()
 
 def generate_pdf(data: List[dict], topic_name: str) -> bytes:
-    """Генерация PDF файла"""
+    """Генерация PDF файла с улучшенным дизайном и активными гиперссылками"""
+    
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    
+    # Используем A4 для большего пространства
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=A4,
+        topMargin=1*cm,
+        bottomMargin=1*cm,
+        leftMargin=1.5*cm,
+        rightMargin=1.5*cm
+    )
+    
     styles = getSampleStyleSheet()
     
-    # Кастомные стили
+    # ========== СОЗДАНИЕ КАСТОМНЫХ СТИЛЕЙ ==========
+    
+    # Стиль для заголовка
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=16,
-        textColor=colors.HexColor('#667eea'),
-        spaceAfter=12
+        fontSize=18,
+        textColor=colors.HexColor('#2C3E50'),
+        spaceAfter=12,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Bold'
     )
     
-    header_style = ParagraphStyle(
-        'CustomHeader',
+    # Стиль для подзаголовка
+    subtitle_style = ParagraphStyle(
+        'CustomSubtitle',
         parent=styles['Heading2'],
-        fontSize=12,
-        textColor=colors.HexColor('#333333'),
-        spaceAfter=6
+        fontSize=14,
+        textColor=colors.HexColor('#34495E'),
+        spaceAfter=8,
+        alignment=TA_CENTER,
+        fontName='Helvetica'
     )
     
-    normal_style = ParagraphStyle(
-        'CustomNormal',
+    # Стиль для информации о теме
+    topic_style = ParagraphStyle(
+        'CustomTopic',
+        parent=styles['Heading3'],
+        fontSize=12,
+        textColor=colors.HexColor('#16A085'),
+        spaceAfter=6,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Bold'
+    )
+    
+    # Стиль для мета-информации
+    meta_style = ParagraphStyle(
+        'CustomMeta',
         parent=styles['Normal'],
         fontSize=10,
-        spaceAfter=6
+        textColor=colors.HexColor('#7F8C8D'),
+        spaceAfter=3,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Oblique'
+    )
+    
+    # Стиль для названия статьи (с гиперссылкой)
+    paper_title_style = ParagraphStyle(
+        'CustomPaperTitle',
+        parent=styles['Heading4'],
+        fontSize=11,
+        textColor=colors.HexColor('#2980B9'),
+        spaceAfter=4,
+        alignment=TA_LEFT,
+        fontName='Helvetica-Bold',
+        underline=True  # Показываем, что это ссылка
+    )
+    
+    # Стиль для авторов
+    authors_style = ParagraphStyle(
+        'CustomAuthors',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.HexColor('#2C3E50'),
+        spaceAfter=2,
+        alignment=TA_LEFT,
+        fontName='Helvetica'
+    )
+    
+    # Стиль для деталей статьи
+    details_style = ParagraphStyle(
+        'CustomDetails',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=colors.HexColor('#7F8C8D'),
+        spaceAfter=2,
+        alignment=TA_LEFT,
+        fontName='Helvetica'
+    )
+    
+    # Стиль для метрик
+    metrics_style = ParagraphStyle(
+        'CustomMetrics',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.HexColor('#27AE60'),
+        spaceAfter=0,
+        alignment=TA_LEFT,
+        fontName='Helvetica-Bold'
+    )
+    
+    # Стиль для ключевых слов
+    keywords_style = ParagraphStyle(
+        'CustomKeywords',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=colors.HexColor('#E74C3C'),
+        spaceAfter=2,
+        alignment=TA_LEFT,
+        fontName='Helvetica-Oblique'
+    )
+    
+    # Стиль для нижнего колонтитула
+    footer_style = ParagraphStyle(
+        'CustomFooter',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=colors.HexColor('#95A5A6'),
+        spaceBefore=15,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Oblique'
+    )
+    
+    # Стиль для разделителя
+    separator_style = ParagraphStyle(
+        'CustomSeparator',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=colors.HexColor('#BDC3C7'),
+        spaceAfter=10,
+        spaceBefore=10,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Oblique'
     )
     
     story = []
     
-    # Заголовок
-    story.append(Paragraph("CTA Research Explorer Pro", title_style))
-    story.append(Paragraph(f"Topic: {topic_name}", header_style))
-    story.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", normal_style))
-    story.append(Paragraph("© CTA, https://chimicatechnoacta.ru / developed by daM©", normal_style))
-    story.append(Spacer(1, 20))
+    # ========== ЗАГОЛОВОЧНАЯ СТРАНИЦА ==========
     
-    # Таблица
-    table_data = [['#', 'Title', 'Authors', 'Year', 'Citations', 'Relevance', 'DOI']]
+    # Логотип или заголовок
+    story.append(Spacer(1, 2*cm))
+    story.append(Paragraph("CTA RESEARCH EXPLORER PRO", title_style))
+    story.append(Paragraph("Under-Cited Papers Analysis Report", subtitle_style))
+    story.append(Spacer(1, 1*cm))
     
-    for i, work in enumerate(data[:50], 1):  # Ограничиваем 50 записями для PDF
-        authors = ', '.join(work.get('authors', [])[:2])
-        if len(work.get('authors', [])) > 2:
-            authors += ' et al.'
+    # Информация о теме
+    story.append(Paragraph(f"RESEARCH TOPIC:", topic_style))
+    story.append(Paragraph(f"{topic_name.upper()}", subtitle_style))
+    story.append(Spacer(1, 0.5*cm))
+    
+    # Мета-информация
+    current_date = datetime.now().strftime('%B %d, %Y at %H:%M')
+    story.append(Paragraph(f"Generated on {current_date}", meta_style))
+    story.append(Paragraph(f"Total papers analyzed: {len(data)}", meta_style))
+    
+    # Расчет статистик
+    if data:
+        avg_citations = np.mean([w.get('cited_by_count', 0) for w in data])
+        oa_count = sum(1 for w in data if w.get('is_oa'))
+        recent_count = sum(1 for w in data if w.get('publication_year', 0) >= datetime.now().year - 2)
         
-        table_data.append([
-            str(i),
-            work.get('title', '')[:80],
-            authors[:50],
-            str(work.get('publication_year', '')),
-            str(work.get('cited_by_count', 0)),
-            str(work.get('relevance_score', 0)),
-            work.get('doi', '')[:40]
-        ])
+        stats_text = f"""
+        Average citations: {avg_citations:.1f} | 
+        Open Access papers: {oa_count} | 
+        Recent papers (≤2 years): {recent_count}
+        """
+        story.append(Paragraph(stats_text, meta_style))
     
-    table = Table(table_data, colWidths=[30, 200, 100, 40, 50, 50, 150])
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-        ('FONTSIZE', (0, 1), (-1, -1), 9),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-    ]))
+    story.append(Spacer(1, 1.5*cm))
     
-    story.append(table)
+    # Копирайт информация
+    story.append(Paragraph("© CTA - Chemical Technology Acta", footer_style))
+    story.append(Paragraph("https://chimicatechnoacta.ru", footer_style))
+    story.append(Paragraph("Developed by daM©", footer_style))
+    
+    # Разделитель страниц
+    story.append(PageBreak())
+    
+    # ========== КРАТКОЕ СОДЕРЖАНИЕ ==========
+    
+    story.append(Paragraph("TABLE OF CONTENTS", title_style))
+    story.append(Spacer(1, 0.5*cm))
+    
+    # Создаем оглавление
+    toc_items = []
+    for i in range(min(50, len(data))):  # Ограничиваем 50 записями для читаемости
+        toc_items.append(f"{i+1}. {data[i].get('title', 'Untitled')[:80]}...")
+    
+    toc_text = "<br/>".join(toc_items[:20])  # Первые 20 в оглавлении
+    story.append(Paragraph(toc_text, details_style))
+    
+    if len(data) > 20:
+        story.append(Paragraph(f"... and {len(data)-20} more papers", details_style))
+    
+    story.append(PageBreak())
+    
+    # ========== ДЕТАЛЬНЫЙ ОТЧЕТ ПО СТАТЬЯМ ==========
+    
+    story.append(Paragraph("DETAILED PAPER ANALYSIS", title_style))
+    story.append(Spacer(1, 0.5*cm))
+    
+    # Обрабатываем каждую статью (ограничиваем 50 для читаемости)
+    for i, work in enumerate(data[:50], 1):
+        # Заголовок статьи с гиперссылкой
+        title = work.get('title', 'No title available')
+        doi = work.get('doi', '')
+        doi_url = work.get('doi_url', '')
+        
+        # Создаем гиперссылку в PDF
+        if doi_url:
+            title_with_link = f'<link href="{doi_url}" color="blue"><u>{title}</u></link>'
+        else:
+            title_with_link = title
+        
+        story.append(Paragraph(f"{i}. {title_with_link}", paper_title_style))
+        
+        # Авторы
+        authors = work.get('authors', [])
+        if authors:
+            authors_text = ', '.join(authors[:3])
+            if len(authors) > 3:
+                authors_text += f' et al. ({len(authors)} authors)'
+            story.append(Paragraph(f"<b>Authors:</b> {authors_text}", authors_style))
+        
+        # Основные метрики в одной строке
+        citations = work.get('cited_by_count', 0)
+        year = work.get('publication_year', 'N/A')
+        relevance = work.get('relevance_score', 0)
+        venue = work.get('venue_name', 'N/A')[:40]
+        
+        metrics_text = f"""
+        <b>Citations:</b> {citations} | 
+        <b>Year:</b> {year} | 
+        <b>Relevance Score:</b> {relevance}/10 | 
+        <b>Venue:</b> {venue} | 
+        <b>Open Access:</b> {'Yes' if work.get('is_oa') else 'No'}
+        """
+        story.append(Paragraph(metrics_text, metrics_style))
+        
+        # Ключевые слова (если есть)
+        if work.get('matched_keywords'):
+            keywords = ', '.join(work.get('matched_keywords', [])[:5])
+            story.append(Paragraph(f"<b>Matched Keywords:</b> {keywords}", keywords_style))
+        
+        # DOI ссылка
+        if doi:
+            if doi_url:
+                doi_link = f'<link href="{doi_url}" color="blue"><u>{doi}</u></link>'
+            else:
+                doi_link = doi
+            story.append(Paragraph(f"<b>DOI:</b> {doi_link}", details_style))
+        
+        # Разделитель между статьями
+        if i < min(50, len(data)):
+            story.append(Paragraph("─" * 80, separator_style))
+            story.append(Spacer(1, 0.2*cm))
+    
+    # ========== СТАТИСТИЧЕСКАЯ СТРАНИЦА ==========
+    
+    if len(data) > 10:  # Добавляем статистику только если есть достаточное количество данных
+        story.append(PageBreak())
+        story.append(Paragraph("STATISTICAL SUMMARY", title_style))
+        story.append(Spacer(1, 0.5*cm))
+        
+        # Подготовка данных для статистики
+        citations_list = [w.get('cited_by_count', 0) for w in data]
+        years_list = [w.get('publication_year', 0) for w in data if w.get('publication_year', 0) > 1900]
+        
+        if citations_list and years_list:
+            # Базовая статистика
+            stats_data = [
+                ["Metric", "Value"],
+                ["Total Papers", len(data)],
+                ["Average Citations", f"{np.mean(citations_list):.2f}"],
+                ["Median Citations", f"{np.median(citations_list):.2f}"],
+                ["Min Citations", min(citations_list)],
+                ["Max Citations", max(citations_list)],
+                ["Open Access Papers", sum(1 for w in data if w.get('is_oa'))],
+                ["Average Year", f"{np.mean(years_list):.1f}"],
+                ["Most Recent Year", max(years_list) if years_list else "N/A"],
+                ["Average Relevance", f"{np.mean([w.get('relevance_score', 0) for w in data]):.2f}/10"]
+            ]
+            
+            # Создаем таблицу статистики
+            stats_table = Table(stats_data, colWidths=[doc.width/2.5, doc.width/3])
+            stats_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498DB')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8F9FA')),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D5DBDB')),
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F4F4')]),
+            ]))
+            
+            story.append(stats_table)
+            story.append(Spacer(1, 1*cm))
+            
+            # Распределение по годам
+            if years_list:
+                year_counts = {}
+                for year in years_list:
+                    year_counts[year] = year_counts.get(year, 0) + 1
+                
+                sorted_years = sorted(year_counts.items())
+                year_data = [["Year", "Number of Papers"]] + [[str(y), str(c)] for y, c in sorted_years[-10:]]  # Последние 10 лет
+                
+                if len(year_data) > 1:
+                    story.append(Paragraph("Publications by Year (Last 10 years)", subtitle_style))
+                    year_table = Table(year_data, colWidths=[doc.width/4, doc.width/4])
+                    year_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ECC71')),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D5DBDB')),
+                        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F4F4')]),
+                    ]))
+                    story.append(year_table)
+    
+    # ========== ЗАКЛЮЧЕНИЕ ==========
+    
+    story.append(PageBreak())
+    story.append(Paragraph("CONCLUSION & RECOMMENDATIONS", title_style))
+    story.append(Spacer(1, 0.5*cm))
+    
+    # Рекомендации на основе анализа
+    conclusions = [
+        f"This report analyzed {len(data)} under-cited papers in the field of '{topic_name}'.",
+        "Papers with low citation counts often represent emerging ideas or niche research areas.",
+        "Consider these papers for:",
+        "• Literature reviews of emerging topics",
+        "• Identifying research gaps",
+        "• Finding novel methodologies",
+        "• Cross-disciplinary connections"
+    ]
+    
+    for conclusion in conclusions:
+        story.append(Paragraph(conclusion, ParagraphStyle(
+            'Conclusion',
+            parent=styles['Normal'],
+            fontSize=10,
+            textColor=colors.HexColor('#2C3E50'),
+            spaceAfter=4,
+            leftIndent=20 if conclusion.startswith('•') else 0,
+            fontName='Helvetica'
+        )))
+    
+    story.append(Spacer(1, 1*cm))
+    
+    # Заключительные замечания
+    story.append(Paragraph("FINAL NOTES", subtitle_style))
+    final_notes = [
+        "This report was generated automatically by CTA Research Explorer Pro.",
+        "All data is sourced from OpenAlex API and is subject to their terms of use.",
+        "For the most current data, please visit the original sources via the provided DOIs.",
+        "Citation counts are as of the report generation date and may change over time."
+    ]
+    
+    for note in final_notes:
+        story.append(Paragraph(f"• {note}", details_style))
+    
+    # Нижний колонтитул на последней странице
+    story.append(Spacer(1, 2*cm))
+    story.append(Paragraph("© CTA Research Explorer Pro - https://chimicatechnoacta.ru", footer_style))
+    story.append(Paragraph(f"Report ID: {hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8]}", 
+                         ParagraphStyle(
+                             'ReportID',
+                             parent=styles['Normal'],
+                             fontSize=7,
+                             textColor=colors.HexColor('#BDC3C7'),
+                             alignment=TA_CENTER
+                         )))
+    
+    # ========== ГЕНЕРАЦИЯ PDF ==========
+    
     doc.build(story)
     
     return buffer.getvalue()
@@ -1621,4 +1941,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
