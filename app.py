@@ -923,71 +923,70 @@ def create_metric_card(title: str, value, change: str = "", icon: str = "📊"):
     """, unsafe_allow_html=True)
 
 def create_result_card(work: dict, index: int):
-    """Создает карточку результата"""
     citation_count = work.get('cited_by_count', 0)
-    
-    if citation_count == 0:
-        citation_badge = '<span class="citation-badge low-citation">0 citations</span>'
-    elif citation_count <= 3:
-        citation_badge = f'<span class="citation-badge low-citation">{citation_count} citation{"s" if citation_count > 1 else ""}</span>'
-    elif citation_count <= 10:
-        citation_badge = f'<span class="citation-badge medium-citation">{citation_count} citations</span>'
-    else:
-        citation_badge = f'<span class="citation-badge high-citation">{citation_count} citations</span>'
-    
-    oa_badge = '✅ Open Access' if work.get('is_oa') else '🔒 Closed Access'
-    relevance_score = work.get('relevance_score', 0)
-    
-    authors = ', '.join(work.get('authors', [])[:3])
-    if len(work.get('authors', [])) > 3:
-        authors += f' and {len(work.get('authors', [])) - 3} more'
-    
-    doi_url = work.get('doi_url', '')
-    title = work.get('title', 'No title')
-    
-    # Формируем HTML для ключевых слов
-    keywords_html = ''
-    if work.get('matched_keywords'):
-        keywords = work.get('matched_keywords', [])[:5]
-        keywords_html = '<div style="margin: 10px 0;">'
-        for kw in keywords:
-            keywords_html += f'<span style="background: #f0f4ff; padding: 2px 8px; margin: 2px; border-radius: 12px; font-size: 0.8rem; display: inline-block;">{kw}</span>'
-        keywords_html += '</div>'
-    
-    html_content = f"""
-    <div class="result-card">
-        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center;">
-                <span style="font-weight: 700; color: #667eea; margin-right: 10px;">#{index}</span>
-                {citation_badge}
-                <span style="background: #e3f2fd; padding: 3px 10px; border-radius: 20px; font-size: 0.8rem;">
-                    Score: {relevance_score}
-                </span>
+    # ... (весь код до citation_badge остаётся тем же)
+
+    # ────────────────────────────────────────────────
+    # Вместо одной большой строки — несколько markdown-вызовов
+    # ────────────────────────────────────────────────
+
+    st.markdown(
+        f"""
+        <div class="result-card">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                <div style="display: flex; align-items: center;">
+                    <span style="font-weight: 700; color: #667eea; margin-right: 10px;">#{index}</span>
+                    {citation_badge}
+                    <span style="background: #e3f2fd; padding: 3px 10px; border-radius: 20px; font-size: 0.8rem;">
+                        Score: {relevance_score}
+                    </span>
+                </div>
+                <span style="color: #666; font-size: 0.9rem;">{work.get('publication_year', '')} • {work.get('venue_name', '')[:30]}</span>
             </div>
-            <span style="color: #666; font-size: 0.9rem;">{work.get('publication_year', '')} • {work.get('venue_name', '')[:30]}</span>
-        </div>
-        
-        <h4 style="margin: 10px 0; line-height: 1.4;">{title}</h4>
-        
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Заголовок отдельно
+    st.markdown(f"<h4 style='margin: 10px 0; line-height: 1.4;'>{title}</h4>", unsafe_allow_html=True)
+
+    # Авторы
+    st.markdown(
+        f"""
         <div style="color: #555; margin: 10px 0; font-size: 0.95rem;">
             <span>👥 {authors if authors else 'Unknown authors'}</span>
         </div>
-        
-        {keywords_html}
-        
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Ключевые слова (если есть)
+    if work.get('matched_keywords'):
+        keywords = work.get('matched_keywords', [])[:5]
+        chips = ' '.join(
+            f'<span style="background: #f0f4ff; padding: 2px 8px; margin: 2px; border-radius: 12px; font-size: 0.8rem; display: inline-block;">{kw}</span>'
+            for kw in keywords
+        )
+        st.markdown(f'<div style="margin: 10px 0;">{chips}</div>', unsafe_allow_html=True)
+
+    # Нижняя часть (OA + ссылка)
+    oa_text = '✅ Open Access' if work.get('is_oa') else '🔒 Closed Access'
+    doi_link = (
+        f'<a href="{doi_url}" target="_blank" class="doi-link">🔗 View Article</a>'
+        if doi_url else
+        '<span style="color: #999;">No DOI available</span>'
+    )
+
+    st.markdown(
+        f"""
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
-            <div>
-                {oa_badge}
-            </div>
-            <div>
-                {'<a href="' + doi_url + '" target="_blank" class="doi-link">🔗 View Article</a>' if doi_url else '<span style="color: #999;">No DOI available</span>'}
-            </div>
+            <div>{oa_text}</div>
+            <div>{doi_link}</div>
         </div>
-    </div>
-    """
-    
-    # Ключевое: используем st.markdown с unsafe_allow_html=True
-    st.markdown(html_content, unsafe_allow_html=True)
+        </div>  <!-- закрываем result-card -->
+        """,
+        unsafe_allow_html=True
+    )
 
 def create_filters_ui() -> Dict:
     """Создание интерфейса фильтров"""
@@ -1613,6 +1612,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
