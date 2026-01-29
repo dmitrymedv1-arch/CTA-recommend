@@ -2002,6 +2002,14 @@ def step_topic_selection():
     """Шаг 3: Выбор темы (компактный)"""
     create_back_button()
     
+    # Очищаем результаты предыдущего анализа при возврате
+    if 'relevant_works' in st.session_state:
+        del st.session_state.relevant_works
+    
+    # Также очищаем другие связанные данные
+    if 'top_keywords' in st.session_state:
+        del st.session_state.top_keywords
+    
     st.markdown("""
     <div class="step-card">
         <h3 style="margin: 0; font-size: 1.3rem;">🎯 Step 3: Select Research Topic</h3>
@@ -2019,6 +2027,22 @@ def step_results():
     """Шаг 4: Результаты (компактный)"""
     create_back_button()
     
+    # Кнопка для изменения фильтров
+    st.markdown("""
+    <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([6, 1, 1])
+    with col3:
+        if st.button("⚙️ Edit Filters", use_container_width=True, help="Change filter settings"):
+            # Очищаем предыдущие результаты при изменении фильтров
+            if 'relevant_works' in st.session_state:
+                del st.session_state.relevant_works
+            if 'last_filter_key' in st.session_state:
+                del st.session_state.last_filter_key
+            st.session_state.current_step = 3
+            st.rerun()
+    
     st.markdown("""
     <div class="step-card">
         <h3 style="margin: 0; font-size: 1.3rem;">📊 Step 4: Analysis Results</h3>
@@ -2034,156 +2058,240 @@ def step_results():
     selected_years = st.session_state.get('selected_years', [datetime.now().year - 2, datetime.now().year - 1, datetime.now().year])
     selected_ranges = st.session_state.get('selected_ranges', [(0, 10)])
     
-    # Анализ работ по теме
-    if 'relevant_works' not in st.session_state:
-        with st.spinner("Searching for fresh papers..."):
+    # Создаем уникальный ключ для текущих фильтров
+    current_filter_key = f"{st.session_state.selected_topic_id}_{str(sorted(selected_years))}_{str(selected_ranges)}"
+    
+    # Показываем активные фильтры
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #e3f2fd15 0%, #bbdefb15 100%); 
+                border-radius: 8px; padding: 12px; margin-bottom: 15px; border-left: 3px solid #2196F3;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong style="color: #1565c0;">🎯 Active Filters</strong><br>
+                <span style="font-size: 0.85rem; color: #555;">
+                    Years: {', '.join(map(str, sorted(selected_years)))} | 
+                    Citations: {', '.join([f'{min_cit}-{max_cit}' for min_cit, max_cit in selected_ranges])}
+                </span>
+            </div>
+            <span style="font-size: 0.8rem; color: #666; background: #e3f2fd; padding: 3px 10px; border-radius: 12px;">
+                {st.session_state.get('selected_topic', 'Unknown Topic')}
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Проверяем, нужен ли новый анализ
+    needs_new_analysis = True
+    if 'last_filter_key' in st.session_state and 'relevant_works' in st.session_state:
+        if st.session_state.last_filter_key == current_filter_key:
+            needs_new_analysis = False
+    
+    # Выполняем анализ при необходимости
+    if needs_new_analysis:
+        # Очищаем старые данные
+        if 'relevant_works' in st.session_state:
+            del st.session_state.relevant_works
+        
+        # Получаем ключевые слова
+        if 'keyword_counter' in st.session_state:
+            top_keywords = [kw for kw, _ in st.session_state.keyword_counter.most_common(10)]
+        else:
+            top_keywords = []
+        
+        # Выполняем анализ
+        with st.spinner("🔍 Searching for fresh papers..."):
+            progress_text = st.empty()
+            progress_bar = st.progress(0)
+            
+            def update_progress(progress, count, page):
+                progress_bar.progress(progress)
+                progress_text.text(f"📄 Page {page}: {count} papers found...")
+            
             relevant_works = analyze_works_for_topic(
                 st.session_state.selected_topic_id,
-                [kw for kw, _ in st.session_state.keyword_counter.most_common(10)],
+                top_keywords,
                 max_citations=10,
                 max_works=2000,
                 top_n=100,
                 year_filter=selected_years,
                 citation_ranges=selected_ranges
             )
+            
+            progress_bar.empty()
+            progress_text.empty()
+        
+        # Сохраняем результаты
         st.session_state.relevant_works = relevant_works
+        st.session_state.last_filter_key = current_filter_key
+        
+        # Показываем уведомление о новом анализе
+        if relevant_works:
+            st.success(f"✅ Found {len(relevant_works)} fresh papers with current filters!")
+        else:
+            st.warning("⚠️ No papers found with current filters. Try adjusting your criteria.")
     else:
+        # Используем кэшированные результаты
         relevant_works = st.session_state.relevant_works
+        st.info(f"📋 Showing {len(relevant_works)} previously found papers. Click 'Edit Filters' to refresh.")
     
     # Статистика
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        create_metric_card_compact("Papers Found", len(relevant_works), "📄")
-    with col2:
-        avg_citations = np.mean([w.get('cited_by_count', 0) for w in relevant_works]) if relevant_works else 0
-        create_metric_card_compact("Avg Citations", f"{avg_citations:.1f}", "📈")
-    with col3:
+    if relevant_works:
+        avg_citations = np.mean([w.get('cited_by_count', 0) for w in relevant_works])
         oa_count = sum(1 for w in relevant_works if w.get('is_oa'))
-        create_metric_card_compact("Open Access", oa_count, "🔓")
-    with col4:
         current_year = datetime.now().year
         recent_count = sum(1 for w in relevant_works if w.get('publication_year', 0) >= current_year - 2)
-        create_metric_card_compact("Recent (≤2y)", recent_count, "🕒")
-    
-    # Показываем активные фильтры
-    st.markdown(f"""
-    <div style="margin: 10px 0; font-size: 0.85rem; color: #666;">
-        <strong>Active filters:</strong> Years: {', '.join(map(str, selected_years))} | 
-        Citation ranges: {', '.join([f'{min_cit}-{max_cit}' for min_cit, max_cit in selected_ranges])}
-    </div>
-    """, unsafe_allow_html=True)
-    
-    if not relevant_works:
+        zero_cite_count = sum(1 for w in relevant_works if w.get('cited_by_count', 0) == 0)
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            create_metric_card_compact("Papers", len(relevant_works), "📄")
+        with col2:
+            create_metric_card_compact("Avg Citations", f"{avg_citations:.1f}", "📈")
+        with col3:
+            create_metric_card_compact("Open Access", oa_count, "🔓")
+        with col4:
+            create_metric_card_compact("Recent (≤2y)", recent_count, "🕒")
+        with col5:
+            create_metric_card_compact("Zero Cited", zero_cite_count, "🆕")
+    else:
         st.warning("""
         <div class="warning-message">
             <strong>⚠️ No papers match your filters</strong><br>
-            Try adjusting your filters in Step 3.
+            Try adjusting your filters using the 'Edit Filters' button above.
         </div>
         """, unsafe_allow_html=True)
-    else:
-        # Результаты в виде карточек
+        return
+    
+    # Результаты в виде карточек
+    if relevant_works:
         st.markdown("<h4>🎯 Recommended Papers:</h4>", unsafe_allow_html=True)
         
-        for idx, work in enumerate(relevant_works[:10], 1):
+        # Сортировка по релевантности и новизне
+        sorted_works = sorted(relevant_works, 
+                             key=lambda x: (-x.get('relevance_score', 0), 
+                                           -x.get('publication_year', 0)))
+        
+        for idx, work in enumerate(sorted_works[:10], 1):
             create_result_card_compact(work, idx)
         
-        # Таблица для детального просмотра
-        st.markdown("<h4>📋 Detailed View:</h4>", unsafe_allow_html=True)
-        
-        display_data = []
-        for i, work in enumerate(relevant_works, 1):
-            doi_url = work.get('doi_url', '')
-            title = work.get('title', '')
+        # Дополнительные опции просмотра
+        with st.expander("📋 Detailed Table View", expanded=False):
+            display_data = []
+            for i, work in enumerate(sorted_works, 1):
+                display_data.append({
+                    '#': i,
+                    'Title': work.get('title', '')[:70] + '...' if len(work.get('title', '')) > 70 else work.get('title', ''),
+                    'Relevance': work.get('relevance_score', 0),
+                    'Citations': work.get('cited_by_count', 0),
+                    'Year': work.get('publication_year', ''),
+                    'Journal': work.get('venue_name', '')[:25],
+                    'Authors': ', '.join(work.get('authors', [])[:2]),
+                    'Keywords': ', '.join(work.get('matched_keywords', [])[:3]),
+                    'DOI': work.get('doi_url', '') if work.get('doi_url') else 'N/A',
+                })
             
-            display_data.append({
-                '#': i,
-                'Title': title[:60] + '...' if len(title) > 60 else title,
-                'Citations': work.get('cited_by_count', 0),
-                'Relevance': work.get('relevance_score', 0),
-                'Year': work.get('publication_year', ''),
-                'Journal': work.get('journal_name', '')[:20],
-                'DOI': doi_url if doi_url else 'N/A',  # Исправлено: убираем markdown
-                'OA': '✅' if work.get('is_oa') else '❌',
-                'Authors': ', '.join(work.get('authors', [])[:2])
-            })
-        
-        df = pd.DataFrame(display_data)
-        
-        # Используем column_config без LinkColumn для чистых URL
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=300,
-            column_config={
-                "DOI": st.column_config.TextColumn(
-                    "DOI",
-                    help="Click to copy or open in browser",
-                    width="medium"
-                ),
+            df = pd.DataFrame(display_data)
+            
+            # Конфигурация колонок
+            column_config = {
                 "Relevance": st.column_config.ProgressColumn(
                     "Relevance",
                     help="Relevance score (higher is better)",
                     format="%d",
                     min_value=1,
                     max_value=10
+                ),
+                "DOI": st.column_config.LinkColumn(
+                    "DOI",
+                    help="Click to open article",
+                    display_text="🔗 Open"
                 )
             }
-        )
+            
+            st.dataframe(
+                df,
+                use_container_width=True,
+                height=400,
+                column_config=column_config,
+                hide_index=True
+            )
         
         # Экспорт в разные форматы
         st.markdown("<h4>📥 Export Results:</h4>", unsafe_allow_html=True)
         
-        col1, col2, col3, col4 = st.columns(4)
+        topic_name = st.session_state.get('selected_topic', 'results').replace(' ', '_')
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
-            csv = generate_csv(relevant_works)
+            csv = generate_csv(sorted_works)
             st.download_button(
                 label="📊 CSV",
                 data=csv,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.csv",
+                file_name=f"under_cited_papers_{topic_name}.csv",
                 mime="text/csv",
-                use_container_width=True
+                use_container_width=True,
+                help="Export as CSV spreadsheet"
             )
         
         with col2:
-            excel_data = generate_excel(relevant_works)
+            excel_data = generate_excel(sorted_works)
             st.download_button(
                 label="📈 Excel",
                 data=excel_data,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.xlsx",
+                file_name=f"under_cited_papers_{topic_name}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                use_container_width=True,
+                help="Export as Excel with formatting"
             )
         
         with col3:
-            txt_data = generate_txt(relevant_works, st.session_state.get('selected_topic', 'Results'))
+            txt_data = generate_txt(sorted_works, st.session_state.get('selected_topic', 'Results'))
             st.download_button(
                 label="📝 TXT",
                 data=txt_data,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.txt",
+                file_name=f"under_cited_papers_{topic_name}.txt",
                 mime="text/plain",
-                use_container_width=True
+                use_container_width=True,
+                help="Export as formatted text report"
             )
         
         with col4:
-            pdf_data = generate_pdf(relevant_works[:50], st.session_state.get('selected_topic', 'Results'))
+            pdf_data = generate_pdf(sorted_works[:50], st.session_state.get('selected_topic', 'Results'))
             st.download_button(
                 label="📄 PDF",
                 data=pdf_data,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.pdf",
+                file_name=f"under_cited_papers_{topic_name}.pdf",
                 mime="application/pdf",
-                use_container_width=True
+                use_container_width=True,
+                help="Export as professional PDF report"
             )
+        
+        with col5:
+            if st.button("🔄 Refresh", use_container_width=True, help="Re-run analysis with same filters"):
+                if 'relevant_works' in st.session_state:
+                    del st.session_state.relevant_works
+                if 'last_filter_key' in st.session_state:
+                    del st.session_state.last_filter_key
+                st.rerun()
         
         # Кнопка нового анализа
         st.markdown("---")
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            if st.button("🔄 Start New Analysis", use_container_width=True):
-                for key in ['relevant_works', 'selected_topic', 'selected_topic_id', 
-                          'selected_years', 'selected_ranges', 'top_keywords']:
+            if st.button("🚀 Start New Analysis", type="primary", use_container_width=True, 
+                        help="Start completely new analysis from beginning"):
+                # Очищаем все данные анализа
+                keys_to_remove = [
+                    'relevant_works', 'selected_topic', 'selected_topic_id', 
+                    'selected_years', 'selected_ranges', 'last_filter_key',
+                    'top_keywords', 'keyword_counter', 'works_data', 'topic_counter'
+                ]
+                
+                for key in keys_to_remove:
                     if key in st.session_state:
                         del st.session_state[key]
+                
                 st.session_state.current_step = 1
                 st.rerun()
 
@@ -2233,6 +2341,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
