@@ -2130,8 +2130,7 @@ def generate_txt(data: List[dict], topic_name: str, input_dois: List[str] = None
             # Заголовок
             title = work.get('title', 'No title available')
             output.append(f"TITLE: {title}")
-            
-            # Авторы
+
             authors = work.get('authors', [])
             if authors:
                 output.append(f"AUTHORS: {', '.join(authors[:3])}")
@@ -3348,6 +3347,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
