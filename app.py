@@ -687,7 +687,7 @@ def enrich_work_data(work: dict) -> dict:
     primary_location = work.get('primary_location')
     if primary_location:
         source = primary_location.get('source', {})
-        enriched['venue_name'] = source.get('display_name', '')
+        enriched['venue_name'] = source.get('display_name', '') if source else ''
         enriched['venue_type'] = source.get('type', '')
     else:
         enriched['venue_name'] = ''
@@ -1044,4 +1044,5 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
