@@ -1354,8 +1354,20 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
                 doi_link = f'<link href="{doi_url}" color="blue"><u>{doi}</u></link>'
             else:
                 doi_link = doi
-            story.append(Paragraph(f"<b>DOI:</b> {doi_link}", details_style))
-        
+            import re
+            if doi_link.startswith('<link '):
+                # Парсим XML чтобы получить URL и текст
+                match = re.search(r'href="([^"]+)"[^>]*>([^<]+)<', doi_link)
+                if match:
+                    url = match.group(1)
+                    text = match.group(2)
+                    # Создаем правильную XML-ссылку
+                    story.append(Paragraph(f"<b>DOI:</b> <link href='{url}' color='blue'><u>{text}</u></link>", details_style))
+                else:
+                    story.append(Paragraph(f"<b>DOI:</b> {doi}", details_style))
+            else:
+                story.append(Paragraph(f"<b>DOI:</b> {doi_link}", details_style))
+                
         # Разделитель между статьями
         if i < min(50, len(data)):
             story.append(Paragraph("─" * 80, separator_style))
@@ -2387,6 +2399,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
