@@ -1354,7 +1354,6 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
                 doi_link = f'<link href="{doi_url}" color="blue"><u>{doi}</u></link>'
             else:
                 doi_link = doi
-            import re
             if doi_link.startswith('<link '):
                 # Парсим XML чтобы получить URL и текст
                 match = re.search(r'href="([^"]+)"[^>]*>([^<]+)<', doi_link)
@@ -2399,6 +2398,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
