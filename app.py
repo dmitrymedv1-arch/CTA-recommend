@@ -987,7 +987,7 @@ def create_result_card(work: dict, index: int):
     """
     
     # Ключевое: используем st.markdown с unsafe_allow_html=True
-    st.markdown(card, unsafe_allow_html=True)
+    st.markdown(html_content, unsafe_allow_html=True)
 
 def create_filters_ui() -> Dict:
     """Создание интерфейса фильтров"""
@@ -1613,6 +1613,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
