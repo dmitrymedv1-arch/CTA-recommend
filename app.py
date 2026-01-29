@@ -2730,16 +2730,12 @@ def step_results():
         selected_ranges = [(0, 2)]
         st.session_state.selected_ranges = selected_ranges
     
-    # Анализ работ по теме (только если еще не анализировали или фильтры изменились)
+    # Анализ работ по теме
     if 'relevant_works' not in st.session_state:
         with st.spinner("Searching for fresh papers..."):
-            # Получаем топ-10 ключевых слов
             top_keywords = [kw for kw, _ in st.session_state.keyword_counter.most_common(10)]
-            
-            # Сохраняем ключевые слова в сессии
             st.session_state.top_keywords = top_keywords
             
-            # Выполняем анализ
             relevant_works = analyze_works_for_topic(
                 st.session_state.selected_topic_id,
                 top_keywords,
@@ -2753,6 +2749,24 @@ def step_results():
         st.session_state.relevant_works = relevant_works
     else:
         relevant_works = st.session_state.relevant_works
+    
+    # Подготовка метаданных для экспорта
+    metadata = {
+        'generated_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'topic_name': st.session_state.get('selected_topic', 'Unknown'),
+        'total_papers': len(relevant_works),
+        'original_dois': st.session_state.get('dois', []),
+        'original_dois_count': len(st.session_state.get('dois', [])),
+        'analysis_filters': {
+            'years': selected_years,
+            'citation_ranges': selected_ranges,
+            'citation_ranges_display': format_citation_ranges(selected_ranges),
+            'max_citations': 10,
+            'max_works': 2000,
+            'top_n': 100
+        },
+        'keywords_used': st.session_state.get('top_keywords', [])
+    }
     
     # Статистика
     col1, col2, col3, col4 = st.columns(4)
@@ -2776,7 +2790,8 @@ def step_results():
     st.markdown(f"""
     <div style="margin: 10px 0; font-size: 0.85rem; color: #666;">
         <strong>Active filters:</strong> Years: {', '.join(map(str, selected_years))} | 
-        Citation ranges: {format_citation_ranges(selected_ranges)}
+        Citation ranges: {format_citation_ranges(selected_ranges)} |
+        Input DOIs: {len(st.session_state.get('dois', []))}
     </div>
     """, unsafe_allow_html=True)
     
@@ -2814,14 +2829,13 @@ def step_results():
                 'Relevance': work.get('relevance_score', 0),
                 'Year': work.get('publication_year', ''),
                 'Journal': work.get('journal_name', '')[:20],
-                'DOI': doi_url if doi_url else 'N/A',  # Исправлено: убираем markdown
+                'DOI': doi_url if doi_url else 'N/A',
                 'OA': '✅' if work.get('is_oa') else '❌',
                 'Authors': ', '.join(work.get('authors', [])[:2])
             })
         
         df = pd.DataFrame(display_data)
         
-        # Используем column_config без LinkColumn для чистых URL
         st.dataframe(
             df,
             use_container_width=True,
@@ -2842,13 +2856,13 @@ def step_results():
             }
         )
         
-        # Экспорт в разные форматы
+        # Экспорт в разные форматы с метаданными
         st.markdown("<h4>📥 Export Results:</h4>", unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            csv = generate_csv(relevant_works)
+            csv = generate_csv(relevant_works, metadata)
             st.download_button(
                 label="📊 CSV",
                 data=csv,
@@ -2858,7 +2872,7 @@ def step_results():
             )
         
         with col2:
-            excel_data = generate_excel(relevant_works)
+            excel_data = generate_excel(relevant_works, metadata)
             st.download_button(
                 label="📈 Excel",
                 data=excel_data,
@@ -2868,7 +2882,9 @@ def step_results():
             )
         
         with col3:
-            txt_data = generate_txt(relevant_works, st.session_state.get('selected_topic', 'Results'))
+            txt_data = generate_txt(relevant_works, 
+                                   st.session_state.get('selected_topic', 'Results'), 
+                                   metadata)
             st.download_button(
                 label="📝 TXT",
                 data=txt_data,
@@ -2878,7 +2894,9 @@ def step_results():
             )
         
         with col4:
-            pdf_data = generate_pdf(relevant_works[:50], st.session_state.get('selected_topic', 'Results'))
+            pdf_data = generate_pdf(relevant_works[:50], 
+                                   st.session_state.get('selected_topic', 'Results'), 
+                                   metadata)
             st.download_button(
                 label="📄 PDF",
                 data=pdf_data,
@@ -2886,6 +2904,15 @@ def step_results():
                 mime="application/pdf",
                 use_container_width=True
             )
+        
+        # Информация о воспроизводимости
+        st.info(f"""
+        **📋 Report Information:**
+        - Generated on: {metadata['generated_date']}
+        - Input DOIs: {metadata['original_dois_count']}
+        - Analysis filters preserved in exported files
+        - Use identical inputs to reproduce results
+        """)
         
         # Кнопка нового анализа
         st.markdown("---")
@@ -2946,6 +2973,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
