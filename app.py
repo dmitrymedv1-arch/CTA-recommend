@@ -1174,7 +1174,13 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # Создаем оглавление
     toc_items = []
     for i in range(min(50, len(data))):  # Ограничиваем 50 записями для читаемости
-        toc_items.append(f"{i+1}. {data[i].get('title', 'Untitled')[:80]}...")
+        # Убираем все HTML-теги из заголовков для оглавления
+        title = data[i].get('title', 'Untitled')
+        # Удаляем HTML-теги и сущности
+        title_clean = re.sub(r'<[^>]+>', '', title)  # Удаляем HTML-теги
+        # Также можно заменить HTML-сущности на обычные символы
+        title_clean = title_clean.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        toc_items.append(f"{i+1}. {title_clean[:80]}...")
     
     toc_text = "<br/>".join(toc_items[:20])  # Первые 20 в оглавлении
     story.append(Paragraph(toc_text, details_style))
@@ -2193,6 +2199,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
