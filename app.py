@@ -924,12 +924,28 @@ def create_metric_card(title: str, value, change: str = "", icon: str = "📊"):
 
 def create_result_card(work: dict, index: int):
     citation_count = work.get('cited_by_count', 0)
-    # ... (весь код до citation_badge остаётся тем же)
-
-    # ────────────────────────────────────────────────
-    # Вместо одной большой строки — несколько markdown-вызовов
-    # ────────────────────────────────────────────────
-
+    relevance_score = work.get('relevance_score', 0)
+    
+    # ─── Самое важное: вычисляем citation_badge ПЕРЕД использованием ───
+    if citation_count == 0:
+        citation_badge = '<span class="citation-badge low-citation">0 citations</span>'
+    elif citation_count <= 3:
+        citation_badge = f'<span class="citation-badge low-citation">{citation_count} citation{"s" if citation_count > 1 else ""}</span>'
+    elif citation_count <= 10:
+        citation_badge = f'<span class="citation-badge medium-citation">{citation_count} citations</span>'
+    else:
+        citation_badge = f'<span class="citation-badge high-citation">{citation_count} citations</span>'
+    
+    # ─── Теперь можно безопасно использовать переменную ───
+    oa_badge = '✅ Open Access' if work.get('is_oa') else '🔒 Closed Access'
+    doi_url = work.get('doi_url', '')
+    title = work.get('title', 'No title')
+    
+    authors = ', '.join(work.get('authors', [])[:3])
+    if len(work.get('authors', [])) > 3:
+        authors += f' and {len(work.get('authors', [])) - 3} more'
+    
+    # ─── Первый markdown ───
     st.markdown(
         f"""
         <div class="result-card">
@@ -946,11 +962,11 @@ def create_result_card(work: dict, index: int):
         """,
         unsafe_allow_html=True
     )
-
-    # Заголовок отдельно
+    
+    # дальше идут остальные st.markdown() как было в предыдущем совете
     st.markdown(f"<h4 style='margin: 10px 0; line-height: 1.4;'>{title}</h4>", unsafe_allow_html=True)
-
-    # Авторы
+    
+    # авторы
     st.markdown(
         f"""
         <div style="color: #555; margin: 10px 0; font-size: 0.95rem;">
@@ -959,31 +975,30 @@ def create_result_card(work: dict, index: int):
         """,
         unsafe_allow_html=True
     )
-
-    # Ключевые слова (если есть)
+    
+    # ключевые слова (если есть)
     if work.get('matched_keywords'):
         keywords = work.get('matched_keywords', [])[:5]
-        chips = ' '.join(
+        chips = ' '.join([
             f'<span style="background: #f0f4ff; padding: 2px 8px; margin: 2px; border-radius: 12px; font-size: 0.8rem; display: inline-block;">{kw}</span>'
             for kw in keywords
-        )
+        ])
         st.markdown(f'<div style="margin: 10px 0;">{chips}</div>', unsafe_allow_html=True)
-
-    # Нижняя часть (OA + ссылка)
-    oa_text = '✅ Open Access' if work.get('is_oa') else '🔒 Closed Access'
+    
+    # нижняя строка
     doi_link = (
         f'<a href="{doi_url}" target="_blank" class="doi-link">🔗 View Article</a>'
         if doi_url else
         '<span style="color: #999;">No DOI available</span>'
     )
-
+    
     st.markdown(
         f"""
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
-            <div>{oa_text}</div>
+            <div>{oa_badge}</div>
             <div>{doi_link}</div>
         </div>
-        </div>  <!-- закрываем result-card -->
+        </div>  <!-- закрываем .result-card -->
         """,
         unsafe_allow_html=True
     )
@@ -1612,6 +1627,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
