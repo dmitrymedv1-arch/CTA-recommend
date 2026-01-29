@@ -2154,7 +2154,7 @@ def step_results():
         with col5:
             create_metric_card_compact("Zero Cited", zero_cite_count, "🆕")
     else:
-        st.warning("""
+        st.markdown("""
         <div class="warning-message">
             <strong>⚠️ No papers match your filters</strong><br>
             Try adjusting your filters using the 'Edit Filters' button above.
@@ -2341,6 +2341,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
