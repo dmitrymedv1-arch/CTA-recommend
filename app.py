@@ -2020,7 +2020,7 @@ def step_data_input():
     doi_input = st.text_area(
         "**DOI Input** (one per line or comma-separated):",
         height=150,
-        placeholder="Example:\n10.1038/nmat1849\nhttps://doi.org/10.1038/nmat1849\nGeim, A., Novoselov, K. The rise of graphene. Nature Mater 6, 183–191 (2007). https://doi.org/10.1038/nmat1849",
+        placeholder="Examples:\n10.1038/nmat1849\nhttps://doi.org/10.1038/nmat1849\nGeim, A., Novoselov, K. The rise of graphene. Nature Mater 6, 183–191 (2007). https://doi.org/10.1038/nmat1849",
         help="Enter up to 300 DOI identifiers"
     )
     
@@ -2387,6 +2387,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
