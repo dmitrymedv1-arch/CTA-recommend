@@ -2357,7 +2357,7 @@ def main():
     st.markdown("""
     <h1 class="main-header">🔬 CTA Article Recommender Pro</h1>
     <p style="font-size: 1rem; color: #666; margin-bottom: 1.5rem;">
-    Discover fresh papers using AI-powered analysis.
+    Discover fresh papers using AI-powered analysis
     </p>
     """, unsafe_allow_html=True)
     
@@ -2388,4 +2388,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
