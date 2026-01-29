@@ -6,9 +6,9 @@ concurrent-log-handler
 plotly
 matplotlib
 aiohttp
-asyncio
 aiofiles
 tenacity
 ratelimit
 joblib
-sqlite3
+
+
