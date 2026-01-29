@@ -903,7 +903,7 @@ def enrich_work_data(work: dict) -> dict:
 def analyze_works_for_topic(
     topic_id: str,
     keywords: List[str],
-    max_citations: int = 10,
+    max_citations: int = 10,  # Теперь используется
     max_works: int = 2000,
     top_n: int = 100,
     year_filter: List[int] = None,
@@ -917,11 +917,16 @@ def analyze_works_for_topic(
         return []
     
     current_year = datetime.now().year
-    if year_filter is None:
+    
+    if not year_filter:
         year_filter = [current_year - 2, current_year - 1, current_year]
     
-    if citation_ranges is None:
-        citation_ranges = [(0, 10)]
+    if not citation_ranges:
+        citation_ranges = [(0, max_citations)]
+
+    logger.info(f"Filtering by years: {year_filter}")
+    logger.info(f"Filtering by citation ranges: {citation_ranges}")
+    logger.info(f"Total works loaded: {len(works)}")
     
     with st.spinner(f"Analyzing {len(works)} works..."):
         analyzed = []
@@ -930,11 +935,15 @@ def analyze_works_for_topic(
             cited_by_count = work.get('cited_by_count', 0)
             publication_year = work.get('publication_year', 0)
             
-            # Фильтр по годам
-            if publication_year not in year_filter:
+            if publication_year <= 1900 or publication_year > current_year:
                 continue
-            
-            # Фильтр по цитированиям (диапазоны)
+
+            if year_filter and publication_year not in year_filter:
+                continue
+
+            if cited_by_count > max_citations:
+                continue
+
             in_range = False
             for min_cit, max_cit in citation_ranges:
                 if min_cit <= cited_by_count <= max_cit:
@@ -943,37 +952,6 @@ def analyze_works_for_topic(
             
             if not in_range:
                 continue
-            
-            title = work.get('title', '')
-            abstract = work.get('abstract', '')
-            
-            if title:
-                title_lower = title.lower()
-                abstract_lower = abstract.lower() if abstract else ''
-                
-                score = 0
-                matched = []
-                
-                for keyword in keywords:
-                    kw_lower = keyword.lower()
-                    if kw_lower in title_lower:
-                        score += 3
-                        matched.append(keyword)
-                    elif abstract and kw_lower in abstract_lower:
-                        score += 1
-                        matched.append(f"{keyword}*")
-                
-                if score > 0:
-                    enriched = enrich_work_data(work)
-                    enriched.update({
-                        'relevance_score': score,
-                        'matched_keywords': matched,
-                        'analysis_time': datetime.now().isoformat()
-                    })
-                    analyzed.append(enriched)
-        
-        analyzed.sort(key=lambda x: x['relevance_score'], reverse=True)
-        return analyzed[:top_n]
 
 # ============================================================================
 # ФУНКЦИИ ЭКСПОРТА
@@ -1858,13 +1836,45 @@ def create_topic_selection_ui():
                 index=2,
                 help="Select citation ranges to include"
             )
-            
+
             if selected_option == "Custom...":
-                st.text_input("Enter ranges (e.g., '0-2,4,5-10'):", key="custom_ranges")
+                custom_input = st.text_input(
+                    "Enter ranges (e.g., '0-2,4,5-10'):", 
+                    key="custom_ranges",
+                    help="Format: single number (3) or range (2-5). Multiple ranges: 0-2,4,5-10"
+                )
+                
+                if custom_input:
+                    # Парсинг пользовательского ввода
+                    try:
+                        ranges = []
+                        parts = custom_input.split(',')
+                        for part in parts:
+                            part = part.strip()
+                            if '-' in part:
+                                # Диапазон (2-5)
+                                min_val, max_val = part.split('-')
+                                ranges.append((int(min_val.strip()), int(max_val.strip())))
+                            else:
+                                # Одно значение (3)
+                                val = int(part.strip())
+                                ranges.append((val, val))
+                        
+                        if ranges:
+                            st.session_state.selected_ranges = ranges
+                            st.success(f"✓ Ranges set: {', '.join([f'{min_cit}-{max_cit}' for min_cit, max_cit in ranges])}")
+                        else:
+                            st.session_state.selected_ranges = [(0, 10)]
+                            st.warning("Using default range 0-10")
+                            
+                    except ValueError as e:
+                        st.error(f"Invalid format. Please use numbers and ranges like '0-2,4,5-10'. Error: {e}")
+                        st.session_state.selected_ranges = [(0, 10)]
+                else:
+                    st.session_state.selected_ranges = [(0, 10)]
             else:
                 selected_ranges = next(opt[1] for opt in citation_options if opt[0] == selected_option)
                 st.session_state.selected_ranges = selected_ranges
-        
         # Кнопка запуска анализа
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
@@ -2341,6 +2351,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
