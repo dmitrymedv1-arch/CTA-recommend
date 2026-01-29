@@ -686,9 +686,13 @@ def enrich_work_data(work: dict) -> dict:
     # Безопасное получение данных журнала
     primary_location = work.get('primary_location')
     if primary_location:
-        source = primary_location.get('source', {})
-        enriched['venue_name'] = source.get('display_name', '') if source else ''
-        enriched['venue_type'] = source.get('type', '')
+        source = primary_location.get('source')   # убираем значение по умолчанию {}
+        if source and isinstance(source, dict):
+            enriched['venue_name'] = source.get('display_name', '')
+            enriched['venue_type'] = source.get('type', '')
+        else:
+            enriched['venue_name'] = ''
+            enriched['venue_type'] = ''
     else:
         enriched['venue_name'] = ''
         enriched['venue_type'] = ''
@@ -1044,5 +1048,6 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
