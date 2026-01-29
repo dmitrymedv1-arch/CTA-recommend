@@ -769,25 +769,56 @@ def extract_keywords_from_title(title: str) -> List[str]:
     return filtered_words
 
 def parse_doi_input(text: str) -> List[str]:
+    """
+    Extract DOI identifiers from text handling various formats:
+    1. https://doi.org/10.1002/fuce.70042
+    2. 10.1002/fuce.70042
+    3. https://dx.doi.org/10.1002/fuce.70042
+    4. doi:10.1002/fuce.70042
+    5. DOI:10.1002/fuce.70042
+    6. Full citations with doi:10.1002/cphc.201000936
+    """
     if not text or not text.strip():
         return []
     
-    doi_pattern = r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+'
-    dois = re.findall(doi_pattern, text, re.IGNORECASE)
+    # More comprehensive DOI pattern that handles various formats
+    # Matches DOI after common prefixes and URLs
+    doi_patterns = [
+        r'(?i)https?://(?:dx\.)?doi\.org/(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)',  # URL format
+        r'(?i)(?:doi|DOI)[:\s]+(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)',            # doi: prefix format
+        r'\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)\b'                               # Raw DOI format
+    ]
     
-    cleaned_dois = []
-    for doi in dois:
-        doi = doi.strip()
-        if doi:
-            if doi.startswith('https://doi.org/'):
-                doi = doi[16:]
-            elif doi.startswith('http://doi.org/'):
-                doi = doi[15:]
-            elif doi.startswith('doi.org/'):
-                doi = doi[8:]
-            cleaned_dois.append(doi)
+    all_dois = []
     
-    return list(set(cleaned_dois))[:300]
+    for pattern in doi_patterns:
+        matches = re.findall(pattern, text)
+        for match in matches:
+            if isinstance(match, tuple):  # Some patterns may return groups
+                doi = match[0] if match else ''
+            else:
+                doi = match
+            
+            if doi:
+                # Clean up the DOI - remove any trailing punctuation
+                doi = doi.strip()
+                # Remove trailing punctuation (.,;:)
+                doi = re.sub(r'[.,;:]+$', '', doi)
+                # Remove any angle brackets or parentheses
+                doi = doi.strip('<>()[]{}')
+                all_dois.append(doi)
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_dois = []
+    for doi in all_dois:
+        # Normalize DOI to lowercase for comparison
+        doi_lower = doi.lower()
+        if doi_lower not in seen:
+            seen.add(doi_lower)
+            unique_dois.append(doi)
+    
+    return unique_dois[:300]
 
 def analyze_keywords_parallel(titles: List[str]) -> Counter:
     all_keywords = []
@@ -2199,6 +2230,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
