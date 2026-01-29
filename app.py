@@ -875,11 +875,11 @@ def enrich_work_data(work: dict) -> dict:
     primary_location = work.get('primary_location')
     if primary_location:
         source = primary_location.get('source', {})
-        enriched['venue_name'] = source.get('display_name', '') if source else ''
-        enriched['venue_type'] = (source or {}).get('type', '')
+        enriched['journal_name'] = source.get('display_name', '') if source else ''
+        enriched['journal_type'] = (source or {}).get('type', '')
     else:
-        enriched['venue_name'] = ''
-        enriched['venue_type'] = ''
+        enriched['journal_name'] = ''
+        enriched['journal_type'] = ''
     
     open_access = work.get('open_access')
     enriched['is_oa'] = open_access.get('is_oa', False) if open_access else False
@@ -1253,13 +1253,13 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         citations = work.get('cited_by_count', 0)
         year = work.get('publication_year', 'N/A')
         relevance = work.get('relevance_score', 0)
-        venue = work.get('venue_name', 'N/A')[:40]
+        journal = work.get('journal_name', 'N/A')[:40]
         
         metrics_text = f"""
         <b>Citations:</b> {citations} | 
         <b>Year:</b> {year} | 
         <b>Relevance Score:</b> {relevance}/10 | 
-        <b>Venue:</b> {venue} | 
+        <b>Journal:</b> {journal} | 
         <b>Open Access:</b> {'Yes' if work.get('is_oa') else 'No'}
         """
         story.append(Paragraph(metrics_text, metrics_style))
@@ -1507,12 +1507,12 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
         # Основные метрики
         citations = work.get('cited_by_count', 0)
         year = work.get('publication_year', 'N/A')
-        venue = work.get('venue_name', 'N/A')
+        journal = work.get('journal_name', 'N/A')
         
         output.append("METRICS:")
         output.append(f"  • Citations: {citations}")
         output.append(f"  • Year: {year}")
-        output.append(f"  • Journal/Conference: {venue}")
+        output.append(f"  • Journal/Conference: {journal}")
         output.append(f"  • Open Access: {'Yes' if work.get('is_oa') else 'No'}")
         
         # Ключевые слова
@@ -1765,7 +1765,7 @@ def create_result_card_compact(work: dict, index: int):
         <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title}</div>
         <div style="color: #555; font-size: 0.85rem; margin-bottom: 5px;">👤 {authors}</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-            <span>{oa_badge} {work.get('venue_name', '')[:30]}</span>
+            <span>{oa_badge} {work.get('journal_name', '')[:30]}</span>
             <a href="{doi_url}" target="_blank" style="color: #2196F3; text-decoration: none; font-size: 0.85rem;">
                 🔗 View Article
             </a>
@@ -2098,7 +2098,7 @@ def step_results():
                 'Citations': work.get('cited_by_count', 0),
                 'Relevance': work.get('relevance_score', 0),
                 'Year': work.get('publication_year', ''),
-                'Journal': work.get('venue_name', '')[:20],
+                'Journal': work.get('journal_name', '')[:20],
                 'DOI': doi_url if doi_url else 'N/A',  # Исправлено: убираем markdown
                 'OA': '✅' if work.get('is_oa') else '❌',
                 'Authors': ', '.join(work.get('authors', [])[:2])
@@ -2230,6 +2230,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
