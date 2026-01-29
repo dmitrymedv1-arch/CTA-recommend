@@ -1130,7 +1130,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # Логотип или заголовок
     story.append(Spacer(1, 2*cm))
     story.append(Paragraph("CTA RESEARCH EXPLORER PRO", title_style))
-    story.append(Paragraph("Under-Cited Papers Analysis Report", subtitle_style))
+    story.append(Paragraph("Fresh Papers Analysis Report", subtitle_style))
     story.append(Spacer(1, 1*cm))
     
     # Информация о теме
@@ -1159,7 +1159,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     story.append(Spacer(1, 1.5*cm))
     
     # Копирайт информация
-    story.append(Paragraph("© CTA - Chemical Technology Acta", footer_style))
+    story.append(Paragraph("© CTA - Сhimica Techno Acta", footer_style))
     story.append(Paragraph("https://chimicatechnoacta.ru", footer_style))
     story.append(Paragraph("Developed by daM©", footer_style))
     
@@ -1320,7 +1320,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     
     # Рекомендации на основе анализа
     conclusions = [
-        f"This report analyzed {len(data)} under-cited papers in the field of '{topic_name}'.",
+        f"This report analyzed {len(data)} fresh papers in the field of '{topic_name}'.",
         "Papers with low citation counts often represent emerging ideas or niche research areas.",
         "Consider these papers for:",
         "• Literature reviews of emerging topics",
@@ -1713,7 +1713,7 @@ def step_topic_selection():
     st.markdown("""
     <div class="step-card">
         <h3 style="margin: 0; font-size: 1.3rem;">🎯 Step 3: Select Research Topic</h3>
-        <p style="margin: 5px 0; font-size: 0.9rem;">Choose a topic for deep analysis of under-cited papers.</p>
+        <p style="margin: 5px 0; font-size: 0.9rem;">Choose a topic for deep analysis of fresh papers.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1730,7 +1730,7 @@ def step_results():
     st.markdown("""
     <div class="step-card">
         <h3 style="margin: 0; font-size: 1.3rem;">📊 Step 4: Analysis Results</h3>
-        <p style="margin: 5px 0; font-size: 0.9rem;">Under-cited papers in your research area.</p>
+        <p style="margin: 5px 0; font-size: 0.9rem;">Fresh papers in your research area.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1744,7 +1744,7 @@ def step_results():
     
     # Анализ работ по теме
     if 'relevant_works' not in st.session_state:
-        with st.spinner("Searching for under-cited papers..."):
+        with st.spinner("Searching for fresh papers..."):
             relevant_works = analyze_works_for_topic(
                 st.session_state.selected_topic_id,
                 [kw for kw, _ in st.session_state.keyword_counter.most_common(10)],
@@ -1910,7 +1910,7 @@ def main():
     st.markdown("""
     <h1 class="main-header">🔬 CTA Research Explorer Pro</h1>
     <p style="font-size: 1rem; color: #666; margin-bottom: 1.5rem;">
-    Discover under-cited papers using AI-powered analysis.
+    Discover fresh papers using AI-powered analysis.
     </p>
     """, unsafe_allow_html=True)
     
@@ -1941,5 +1941,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
