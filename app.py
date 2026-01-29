@@ -1107,7 +1107,7 @@ def generate_csv(data: List[dict], metadata: Dict = None) -> str:
     
     return "\n".join(csv_content)
 
-def generate_excel(data: List[dict]) -> bytes:
+def generate_excel(data: List[dict], metadata: dict = None) -> bytes:
     """Генерация Excel файла"""
     output = io.BytesIO()
     
@@ -2886,7 +2886,7 @@ def step_results():
             )
         
         with col2:
-            excel_data = generate_excel(relevant_works, metadata)
+            excel_data = generate_excel(relevant_works)
             st.download_button(
                 label="📈 Excel",
                 data=excel_data,
@@ -2987,6 +2987,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
