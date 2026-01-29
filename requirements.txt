@@ -10,5 +10,7 @@ aiofiles
 tenacity
 ratelimit
 joblib
+reportlab
+xlsxwriter
 
 
