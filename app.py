@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # Настройки приложения
 st.set_page_config(
     page_title="CTA Article Recommender Pro",
-    page_icon="logo.png",
+    page_icon="logo.jpg",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -2523,7 +2523,7 @@ def main():
     # Заголовок (компактный)
     st.markdown(f"""
     <h1 class="main-header">
-        <img src="logo.png" style="height: 40px; width: auto; vertical-align: middle; margin-right: 15px;"/>
+        <img src="logo.jpg" style="height: 40px; width: auto; vertical-align: middle; margin-right: 15px;"/>
         CTA Article Recommender Pro
     </h1>
     <p style="font-size: 1rem; color: #666; margin-bottom: 1.5rem;">
@@ -2557,6 +2557,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
