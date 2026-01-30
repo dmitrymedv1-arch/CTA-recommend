@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # Настройки приложения
 st.set_page_config(
     page_title="CTA Article Recommender Pro",
-    page_icon="🔬",
+    page_icon="logo.png",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -2554,6 +2554,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
