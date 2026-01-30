@@ -1649,6 +1649,51 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
     output.append("")
     output.append("=" * 80)
     output.append("")
+
+    # ========== INITIAL DATA ==========
+    output.append("INITIAL DATA")
+    output.append("=" * 40)
+    
+    # Получаем данные из сессии
+    initial_dois = st.session_state.get('dois', [])
+    selected_topic = st.session_state.get('selected_topic', 'Not selected')
+    selected_years = st.session_state.get('selected_years', [])
+    selected_ranges = st.session_state.get('selected_ranges', [(0, 10)])
+    
+    # Основные параметры
+    output.append(f"  Total Input DOIs: {len(initial_dois)}")
+    output.append(f"  Selected Topic: {selected_topic}")
+    output.append(f"  Publication Years: {', '.join(map(str, selected_years))}")
+    output.append(f"  Citation Ranges: {format_citation_ranges(selected_ranges)}")
+    output.append(f"  Analysis Date: {current_date}")
+    output.append(f"  Papers Found: {len(data)}")
+    
+    # Список DOI
+    if initial_dois:
+        output.append("")
+        output.append("  Input DOIs:")
+        output.append("  " + "-" * 36)
+        
+        max_dois_to_show = min(300, len(initial_dois))
+        for i, doi in enumerate(initial_dois[:max_dois_to_show], 1):
+            # Форматируем DOI в полный URL
+            if doi.startswith('10.'):
+                doi_url = f"https://doi.org/{doi}"
+            elif doi.startswith('https://doi.org/'):
+                doi_url = doi
+            else:
+                doi_url = f"https://doi.org/{doi}"
+            
+            output.append(f"  {i:3d}. {doi_url}")
+        
+        if len(initial_dois) > max_dois_to_show:
+            output.append(f"  ... and {len(initial_dois) - max_dois_to_show} more")
+        
+        output.append("  " + "-" * 36)
+    
+    output.append("")
+    output.append("=" * 80)
+    output.append("")
     
     # ========== ОГЛАВЛЕНИЕ ==========
     output.append("TABLE OF CONTENTS")
@@ -2509,6 +2554,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
