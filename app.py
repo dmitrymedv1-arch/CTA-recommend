@@ -1296,23 +1296,16 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     selected_years = st.session_state.get('selected_years', [])
     selected_ranges = st.session_state.get('selected_ranges', [(0, 10)])
     
-    # Создаем таблицу с исходными данными
+    # Создаем таблицу с основными параметрами
     initial_data = [
         ["Parameter", "Value"],
         ["Total Input DOIs", len(initial_dois)],
-        ["Selected Topic", selected_topic],
+        ["Selected Topic", clean_text(selected_topic)],
         ["Publication Years", ", ".join(map(str, selected_years))],
         ["Citation Ranges", format_citation_ranges(selected_ranges)],
         ["Analysis Date", current_date],
         ["Papers Found", len(data)]
     ]
-    
-    # Добавляем DOIs (только первые 10)
-    if initial_dois:
-        dois_text = ", ".join(initial_dois[:10])
-        if len(initial_dois) > 10:
-            dois_text += f" ... and {len(initial_dois) - 10} more"
-        initial_data.append(["Input DOIs", dois_text])
     
     initial_table = Table(initial_data, colWidths=[doc.width/2.5, doc.width*3/5])
     initial_table.setStyle(TableStyle([
@@ -1331,6 +1324,65 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     ]))
     
     story.append(initial_table)
+    story.append(Spacer(1, 0.5*cm))
+    
+    # Отображаем DOI в виде кликабельного списка
+    if initial_dois:
+        story.append(Paragraph("<b>Input DOIs:</b>", ParagraphStyle(
+            'DOIsHeader',
+            parent=styles['Normal'],
+            fontSize=11,
+            textColor=colors.HexColor('#2C3E50'),
+            spaceAfter=8,
+            fontName='Helvetica-Bold'
+        )))
+        
+        # Функция для создания ссылок из DOI
+        def create_doi_link(doi):
+            # Проверяем, есть ли уже https://doi.org/ в начале
+            if doi.startswith('10.'):
+                doi_url = f"https://doi.org/{doi}"
+            elif doi.startswith('https://doi.org/'):
+                doi_url = doi
+            else:
+                doi_url = f"https://doi.org/{doi}"
+            
+            # Экранируем для XML
+            doi_url_clean = doi_url.replace('&', '&amp;')
+            
+            # Создаем строку с ссылкой (используем <a> вместо <link> для лучшей совместимости)
+            return f"<a href='{doi_url_clean}' color='blue'>{doi_url}</a>"
+        
+        # Показываем DOI (максимум 25 для читаемости)
+        max_dois_to_show = min(25, len(initial_dois))
+        for i, doi in enumerate(initial_dois[:max_dois_to_show], 1):
+            doi_link = create_doi_link(doi)
+            story.append(Paragraph(f"{i}. {doi_link}", ParagraphStyle(
+                'DOILink',
+                parent=styles['Normal'],
+                fontSize=9,
+                textColor=colors.blue,
+                spaceAfter=2,
+                leftIndent=10,
+                fontName='Helvetica',
+                underline=True
+            )))
+        
+        # Если DOI больше 25, показываем информацию
+        if len(initial_dois) > max_dois_to_show:
+            story.append(Paragraph(
+                f"... and {len(initial_dois) - max_dois_to_show} more DOI entries", 
+                ParagraphStyle(
+                    'DOIsMore',
+                    parent=styles['Normal'],
+                    fontSize=8,
+                    textColor=colors.gray,
+                    spaceAfter=10,
+                    leftIndent=10,
+                    fontName='Helvetica-Oblique'
+                )
+            ))
+    
     story.append(Spacer(1, 1*cm))
     
     # ========== TABLE OF CONTENTS ==========
@@ -2449,6 +2501,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
