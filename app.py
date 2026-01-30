@@ -1154,7 +1154,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         fontName='Helvetica-Oblique'
     )
     
-    # Стиль для названия статьи (с гиперссылкой)
+    # Стиль для названия статьи (обычный, не ссылка)
     paper_title_style = ParagraphStyle(
         'CustomPaperTitle',
         parent=styles['Heading4'],
@@ -1162,8 +1162,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         textColor=colors.HexColor('#2980B9'),
         spaceAfter=4,
         alignment=TA_LEFT,
-        fontName='Helvetica-Bold',
-        underline=True  # Показываем, что это ссылка
+        fontName='Helvetica-Bold'
     )
     
     # Стиль для авторов
@@ -1233,11 +1232,22 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         fontName='Helvetica-Oblique'
     )
     
+    # Стиль для ссылок
+    link_style = ParagraphStyle(
+        'CustomLink',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.blue,
+        spaceAfter=2,
+        alignment=TA_LEFT,
+        fontName='Helvetica',
+        underline=True
+    )
+    
     story = []
     
     # ========== ЗАГОЛОВОЧНАЯ СТРАНИЦА ==========
     
-    # Логотип или заголовок
     story.append(Spacer(1, 2*cm))
     story.append(Paragraph("CTA Article Recommender Pro", title_style))
     story.append(Paragraph("Fresh Papers Analysis Report", subtitle_style))
@@ -1283,20 +1293,19 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     
     # Создаем оглавление
     toc_items = []
-    for i in range(min(50, len(data))):  # Ограничиваем 50 записями для читаемости
-        # Убираем все HTML-теги из заголовков для оглавления
+    for i in range(min(20, len(data))):  # Ограничиваем 20 записями для читаемости
         title = data[i].get('title', 'Untitled')
-        # Удаляем HTML-теги и сущности
-        title_clean = re.sub(r'<[^>]+>', '', title)  # Удаляем HTML-теги
-        # Также можно заменить HTML-сущности на обычные символы
+        # Удаляем HTML-теги
+        title_clean = re.sub(r'<[^>]+>', '', title)
+        # Экранируем специальные символы
         title_clean = title_clean.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        toc_items.append(f"{i+1}. {title_clean[:80]}...")
+        toc_items.append(f"{i+1}. {title_clean[:60]}...")
     
-    toc_text = "<br/>".join(toc_items[:20])  # Первые 20 в оглавлении
+    toc_text = "<br/>".join(toc_items[:15])  # Первые 15 в оглавлении
     story.append(Paragraph(toc_text, details_style))
     
-    if len(data) > 20:
-        story.append(Paragraph(f"... and {len(data)-20} more papers", details_style))
+    if len(data) > 15:
+        story.append(Paragraph(f"... and {len(data)-15} more papers", details_style))
     
     story.append(PageBreak())
     
@@ -1305,21 +1314,20 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     story.append(Paragraph("DETAILED PAPER ANALYSIS", title_style))
     story.append(Spacer(1, 0.5*cm))
     
-    # Обрабатываем каждую статью (ограничиваем 50 для читаемости)
-    for i, work in enumerate(data[:50], 1):
-        # Заголовок статьи с гиперссылкой
-        title = work.get('title', 'No title available')
-        doi = work.get('doi', '')
-        doi_url = work.get('doi_url', '')
-        
-        if doi_url:
-            doi_url_escaped = doi_url.replace('&', '&amp;')
-            title_escaped = title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            title_with_link = f'<link href="{doi_url_escaped}" color="blue"><u>{title_escaped}</u></link>'
-        else:
-            title_with_link = title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        
-        story.append(Paragraph(f"{i}. {title_with_link}", paper_title_style))
+    # Вспомогательная функция для очистки текста
+    def clean_text(text):
+        if not text:
+            return ""
+        # Заменяем HTML сущности и теги
+        text = re.sub(r'<[^>]+>', '', text)  # Удаляем HTML теги
+        text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        return text
+    
+    # Обрабатываем каждую статью (ограничиваем 30 для читаемости)
+    for i, work in enumerate(data[:30], 1):
+        # Заголовок статьи
+        title = clean_text(work.get('title', 'No title available'))
+        story.append(Paragraph(f"{i}. {title}", paper_title_style))
         
         # Авторы
         authors = work.get('authors', [])
@@ -1327,13 +1335,13 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
             authors_text = ', '.join(authors[:3])
             if len(authors) > 3:
                 authors_text += f' et al. ({len(authors)} authors)'
-            story.append(Paragraph(f"<b>Authors:</b> {authors_text}", authors_style))
+            story.append(Paragraph(f"<b>Authors:</b> {clean_text(authors_text)}", authors_style))
         
-        # Основные метрики в одной строке
+        # Основные метрики
         citations = work.get('cited_by_count', 0)
         year = work.get('publication_year', 'N/A')
         relevance = work.get('relevance_score', 0)
-        journal = work.get('journal_name', 'N/A')[:40]
+        journal = clean_text(work.get('journal_name', 'N/A')[:40])
         
         metrics_text = f"""
         <b>Citations:</b> {citations} | 
@@ -1347,35 +1355,31 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         # Ключевые слова (если есть)
         if work.get('matched_keywords'):
             keywords = ', '.join(work.get('matched_keywords', [])[:5])
-            story.append(Paragraph(f"<b>Matched Keywords:</b> {keywords}", keywords_style))
+            story.append(Paragraph(f"<b>Matched Keywords:</b> {clean_text(keywords)}", keywords_style))
         
-        # DOI ссылка
+        # DOI и ссылка
+        doi = work.get('doi', '')
+        doi_url = work.get('doi_url', '')
+        
         if doi:
             if doi_url:
-                doi_link = f'<link href="{doi_url}" color="blue"><u>{doi}</u></link>'
+                # Добавляем ссылку как отдельный параграф
+                story.append(Paragraph(f"<b>DOI:</b> {clean_text(doi)}", details_style))
+                story.append(Paragraph(f"<b>Link:</b> {clean_text(doi_url)}", link_style))
             else:
-                doi_link = doi
-            if doi_link.startswith('<link '):
-                # Парсим XML чтобы получить URL и текст
-                match = re.search(r'href="([^"]+)"[^>]*>([^<]+)<', doi_link)
-                if match:
-                    url = match.group(1)
-                    text = match.group(2)
-                    # Создаем правильную XML-ссылку
-                    story.append(Paragraph(f"<b>DOI:</b> <link href='{url}' color='blue'><u>{text}</u></link>", details_style))
-                else:
-                    story.append(Paragraph(f"<b>DOI:</b> {doi}", details_style))
-            else:
-                story.append(Paragraph(f"<b>DOI:</b> {doi_link}", details_style))
-                
+                story.append(Paragraph(f"<b>DOI:</b> {clean_text(doi)}", details_style))
+        
         # Разделитель между статьями
-        if i < min(50, len(data)):
-            story.append(Paragraph("─" * 80, separator_style))
-            story.append(Spacer(1, 0.2*cm))
+        if i < min(30, len(data)):
+            story.append(Spacer(1, 0.3*cm))
+            story.append(Paragraph("─" * 50, separator_style))
+            story.append(Spacer(1, 0.3*cm))
+        else:
+            story.append(Spacer(1, 0.3*cm))
     
     # ========== СТАТИСТИЧЕСКАЯ СТРАНИЦА ==========
     
-    if len(data) > 10:  # Добавляем статистику только если есть достаточное количество данных
+    if len(data) > 10:
         story.append(PageBreak())
         story.append(Paragraph("STATISTICAL SUMMARY", title_style))
         story.append(Spacer(1, 0.5*cm))
@@ -1458,7 +1462,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     ]
     
     for conclusion in conclusions:
-        story.append(Paragraph(conclusion, ParagraphStyle(
+        story.append(Paragraph(clean_text(conclusion), ParagraphStyle(
             'Conclusion',
             parent=styles['Normal'],
             fontSize=10,
@@ -1480,7 +1484,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     ]
     
     for note in final_notes:
-        story.append(Paragraph(f"• {note}", details_style))
+        story.append(Paragraph(f"• {clean_text(note)}", details_style))
     
     # Нижний колонтитул на последней странице
     story.append(Spacer(1, 2*cm))
@@ -2399,4 +2403,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
