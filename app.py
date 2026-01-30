@@ -1312,11 +1312,12 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         doi = work.get('doi', '')
         doi_url = work.get('doi_url', '')
         
-        # Создаем гиперссылку в PDF
         if doi_url:
-            title_with_link = f'<link href="{doi_url}" color="blue"><u>{title}</u></link>'
+            doi_url_escaped = doi_url.replace('&', '&amp;')
+            title_escaped = title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            title_with_link = f'<link href="{doi_url_escaped}" color="blue"><u>{title_escaped}</u></link>'
         else:
-            title_with_link = title
+            title_with_link = title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
         story.append(Paragraph(f"{i}. {title_with_link}", paper_title_style))
         
@@ -2398,3 +2399,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
