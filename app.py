@@ -1362,8 +1362,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
             # Создаем строку с ссылкой (используем <a> вместо <link> для лучшей совместимости)
             return f"<a href='{doi_url_clean}' color='blue'>{doi_url}</a>"
         
-        # Показываем DOI (максимум 25 для читаемости)
-        max_dois_to_show = min(25, len(initial_dois))
+        max_dois_to_show = min(300, len(initial_dois))
         for i, doi in enumerate(initial_dois[:max_dois_to_show], 1):
             doi_link = create_doi_link(doi)
             story.append(Paragraph(f"{i}. {doi_link}", ParagraphStyle(
@@ -2510,6 +2509,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
