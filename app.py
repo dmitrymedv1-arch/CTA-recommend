@@ -1094,6 +1094,15 @@ def generate_excel(data: List[dict]) -> bytes:
 def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     """Генерация PDF файла с улучшенным дизайном и активными гиперссылками"""
     
+    # Вспомогательная функция для очистки текста
+    def clean_text(text):
+        if not text:
+            return ""
+        # Заменяем HTML сущности и теги
+        text = re.sub(r'<[^>]+>', '', text)  # Удаляем HTML теги
+        text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        return text
+    
     buffer = io.BytesIO()
     
     # Используем A4 для большего пространства
@@ -2501,6 +2510,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
