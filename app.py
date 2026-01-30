@@ -1721,7 +1721,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
                 year_data = [["Year", "Number of Papers"]] + [[str(y), str(c)] for y, c in sorted_years[-10:]]  # Последние 10 лет
                 
                 if len(year_data) > 1:
-                    story.append(Paragraph("Publications by Year (Last 10 years)", subtitle_style))
+                    story.append(Paragraph("Publications by Year (last 3 years)", subtitle_style))
                     year_table = Table(year_data, colWidths=[doc.width/4, doc.width/4])
                     year_table.setStyle(TableStyle([
                         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ECC71')),
@@ -2737,6 +2737,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
