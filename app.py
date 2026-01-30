@@ -33,6 +33,7 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import Image
 from reportlab.platypus.flowables import Flowable
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
+from reportlab.platypus import Image
 import xlsxwriter
 
 # Настройка логирования
@@ -2577,6 +2578,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
