@@ -2521,11 +2521,16 @@ def main():
         st.session_state.current_step = 1
     
     # Заголовок (компактный)
-    st.markdown("""
-    <h1 class="main-header">🔬 CTA Article Recommender Pro</h1>
-    <p style="font-size: 1rem; color: #666; margin-bottom: 1.5rem;">
-    Discover fresh papers using AI-powered analysis
-    </p>
+    st.markdown(f"""
+    <div style="display: flex; align-items: center;">
+        <img src="logo.png" style="height: 60px; width: auto; margin-right: 20px;"/>
+        <div>
+            <h1 class="main-header" style="margin: 0;">CTA Article Recommender Pro</h1>
+            <p style="font-size: 1rem; color: #666; margin: 5px 0 0 0;">
+            Discover fresh papers using AI-powered analysis
+            </p>
+        </div>
+    </div>
     """, unsafe_allow_html=True)
     
     # Прогресс бар
@@ -2554,6 +2559,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
