@@ -1263,7 +1263,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     try:
         logo_path = "logo.png"
         if os.path.exists(logo_path):
-            logo = Image(logo_path, width=80, height=80)
+            logo = Image(logo_path, width=160, height=80)
             logo.hAlign = 'CENTER'
             story.append(logo)
             story.append(Spacer(1, 0.5*cm))
@@ -2577,6 +2577,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
