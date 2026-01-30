@@ -1286,8 +1286,54 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # Разделитель страниц
     story.append(PageBreak())
     
-    # ========== КРАТКОЕ СОДЕРЖАНИЕ ==========
+    # ========== INITIAL DATA ==========
+    story.append(Paragraph("INITIAL DATA", title_style))
+    story.append(Spacer(1, 0.5*cm))
     
+    # Получаем данные из сессии
+    initial_dois = st.session_state.get('dois', [])
+    selected_topic = st.session_state.get('selected_topic', 'Not selected')
+    selected_years = st.session_state.get('selected_years', [])
+    selected_ranges = st.session_state.get('selected_ranges', [(0, 10)])
+    
+    # Создаем таблицу с исходными данными
+    initial_data = [
+        ["Parameter", "Value"],
+        ["Total Input DOIs", len(initial_dois)],
+        ["Selected Topic", selected_topic],
+        ["Publication Years", ", ".join(map(str, selected_years))],
+        ["Citation Ranges", format_citation_ranges(selected_ranges)],
+        ["Analysis Date", current_date],
+        ["Papers Found", len(data)]
+    ]
+    
+    # Добавляем DOIs (только первые 10)
+    if initial_dois:
+        dois_text = ", ".join(initial_dois[:10])
+        if len(initial_dois) > 10:
+            dois_text += f" ... and {len(initial_dois) - 10} more"
+        initial_data.append(["Input DOIs", dois_text])
+    
+    initial_table = Table(initial_data, colWidths=[doc.width/2.5, doc.width*3/5])
+    initial_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 11),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8F9FA')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D5DBDB')),
+        ('FONTSIZE', (0, 1), (-1, -1), 10),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F4F4')]),
+        ('WORDWRAP', (0, 0), (-1, -1), 'LTR'),
+    ]))
+    
+    story.append(initial_table)
+    story.append(Spacer(1, 1*cm))
+    
+    # ========== TABLE OF CONTENTS ==========
     story.append(Paragraph("TABLE OF CONTENTS", title_style))
     story.append(Spacer(1, 0.5*cm))
     
@@ -2403,5 +2449,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
