@@ -1257,10 +1257,33 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     
     # ========== ЗАГОЛОВОЧНАЯ СТРАНИЦА ==========
     
-    story.append(Spacer(1, 2*cm))
+    story.append(Spacer(1, 1*cm))
+        
+    # Добавляем логотип
+    try:
+        logo_path = "logo.png"
+        if os.path.exists(logo_path):
+            logo = Image(logo_path, width=80, height=80)
+            logo.hAlign = 'CENTER'
+            story.append(logo)
+            story.append(Spacer(1, 0.5*cm))
+        else:
+            logger.warning(f"Logo file not found at: {logo_path}")
+    except Exception as e:
+        logger.error(f"Could not load logo: {e}")
+        # Если логотип не загрузился, показываем эмодзи
+        story.append(Paragraph("🔬", ParagraphStyle(
+            'LogoEmoji',
+            parent=styles['Heading1'],
+            fontSize=40,
+            textColor=colors.HexColor('#667eea'),
+            alignment=TA_CENTER
+        )))
+        story.append(Spacer(1, 0.3*cm))
+    
     story.append(Paragraph("CTA Article Recommender Pro", title_style))
     story.append(Paragraph("Fresh Papers Analysis Report", subtitle_style))
-    story.append(Spacer(1, 1*cm))
+    story.append(Spacer(1, 0.8*cm))
     
     # Информация о теме
     story.append(Paragraph(f"RESEARCH TOPIC:", topic_style))
@@ -2554,6 +2577,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
