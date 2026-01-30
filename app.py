@@ -848,6 +848,41 @@ def extract_keywords_from_title(title: str) -> List[str]:
     
     return filtered_words
 
+def extract_numeric_from_doi(doi: str) -> int:
+    """
+    Extract numeric suffix from DOI for comparison.
+    
+    Examples:
+        "10.5281/zenodo.17747567" -> 17747567
+        "10.1002/anie.202000001" -> 202000001
+        "10.1038/nature12345" -> 12345
+    
+    Args:
+        doi: DOI string
+    
+    Returns:
+        Integer value of the numeric suffix, or 0 if no number found
+    """
+    if not doi:
+        return 0
+    
+    # Try to find the last numeric sequence in the DOI
+    # First, split by common separators
+    parts = doi.replace('.', '/').replace('-', '/').split('/')
+    
+    # Look for numeric parts from the end
+    for part in reversed(parts):
+        if part.isdigit():
+            return int(part)
+    
+    # If no pure numeric parts, try to extract numbers from mixed strings
+    numbers = re.findall(r'\d+', doi)
+    if numbers:
+        # Use the last number found (often version or ID)
+        return int(numbers[-1])
+    
+    return 0
+
 def parse_doi_input(text: str) -> List[str]:
     """
     Extract DOI identifiers from text handling various formats:
@@ -986,6 +1021,21 @@ def analyze_works_for_topic(
     year_filter: List[int] = None,
     citation_ranges: List[Tuple[int, int]] = None
 ) -> List[dict]:
+    """
+    Analyze works for a specific topic with filtering of input DOIs and duplicate titles.
+    
+    Args:
+        topic_id: OpenAlex topic ID
+        keywords: List of keywords for relevance scoring
+        max_citations: Maximum citations threshold (deprecated, use citation_ranges instead)
+        max_works: Maximum number of works to fetch from OpenAlex
+        top_n: Number of top results to return
+        year_filter: List of years to filter by
+        citation_ranges: List of citation ranges as tuples (min, max)
+        
+    Returns:
+        List of enriched work dictionaries with duplicates removed
+    """
     
     with st.spinner(f"Loading up to {max_works} works..."):
         works = fetch_works_by_topic_sync(topic_id, max_works)
@@ -1000,18 +1050,33 @@ def analyze_works_for_topic(
     if citation_ranges is None:
         citation_ranges = [(0, 10)]
     
-    with st.spinner(f"Analyzing {len(works)} works..."):
+    # Get input DOIs from session state to exclude them from recommendations
+    input_dois = set()
+    if 'dois' in st.session_state:
+        # Normalize input DOIs (remove https://doi.org/ prefix for comparison)
+        for doi in st.session_state.dois:
+            if doi.startswith('https://doi.org/'):
+                clean_doi = doi.replace('https://doi.org/', '').lower()
+            else:
+                clean_doi = doi.lower()
+            input_dois.add(clean_doi)
+        logger.info(f"Excluding {len(input_dois)} input DOIs from recommendations")
+    
+    # Track duplicate titles to keep only one version (with highest DOI number)
+    title_to_work_map = {}
+    
+    with st.spinner(f"Analyzing {len(works)} works and filtering duplicates..."):
         analyzed = []
         
         for work in works:
             cited_by_count = work.get('cited_by_count', 0)
             publication_year = work.get('publication_year', 0)
             
-            # Фильтр по годам
+            # Filter by years
             if publication_year not in year_filter:
                 continue
             
-            # Фильтр по цитированиям (диапазоны)
+            # Filter by citations (ranges)
             in_range = False
             for min_cit, max_cit in citation_ranges:
                 if min_cit <= cited_by_count <= max_cit:
@@ -1024,33 +1089,127 @@ def analyze_works_for_topic(
             title = work.get('title', '')
             abstract = work.get('abstract', '')
             
+            if not title:  # Skip works without title
+                continue
+            
+            # Extract and clean DOI for comparison
+            doi_raw = work.get('doi', '')
+            doi_clean = ''
+            if doi_raw:
+                doi_clean = str(doi_raw).replace('https://doi.org/', '').lower()
+            
+            # RULE 1: Exclude works that match input DOIs
+            if doi_clean and doi_clean in input_dois:
+                logger.debug(f"Excluding work with input DOI: {doi_clean}")
+                continue
+            
+            # Calculate relevance score
+            score = 0
+            matched = []
+            
             if title:
                 title_lower = title.lower()
                 abstract_lower = abstract.lower() if abstract else ''
-                
-                score = 0
-                matched = []
                 
                 for keyword in keywords:
                     kw_lower = keyword.lower()
                     if kw_lower in title_lower:
                         score += 3
-                        matched.append(keyword)
+                        if keyword not in matched:  # Avoid duplicate matches
+                            matched.append(keyword)
                     elif abstract and kw_lower in abstract_lower:
                         score += 1
-                        matched.append(f"{keyword}*")
+                        if f"{keyword}*" not in matched:  # Abstract matches marked with *
+                            matched.append(f"{keyword}*")
+            
+            if score > 0:
+                enriched = enrich_work_data(work)
+                enriched.update({
+                    'relevance_score': score,
+                    'matched_keywords': matched,
+                    'analysis_time': datetime.now().isoformat()
+                })
                 
-                if score > 0:
-                    enriched = enrich_work_data(work)
-                    enriched.update({
-                        'relevance_score': score,
-                        'matched_keywords': matched,
-                        'analysis_time': datetime.now().isoformat()
-                    })
-                    analyzed.append(enriched)
+                # RULE 2: Handle duplicate titles
+                title_normalized = title.strip().lower()
+                
+                if title_normalized in title_to_work_map:
+                    # We have a duplicate title, compare DOIs
+                    existing_work = title_to_work_map[title_normalized]
+                    existing_doi = existing_work.get('doi', '').lower()
+                    current_doi = enriched.get('doi', '').lower()
+                    
+                    # Extract numeric parts from DOIs for comparison
+                    existing_numeric = extract_numeric_from_doi(existing_doi)
+                    current_numeric = extract_numeric_from_doi(current_doi)
+                    
+                    # Keep the work with higher numeric DOI (or higher score if DOIs equal)
+                    if current_numeric > existing_numeric:
+                        # Replace with current work
+                        title_to_work_map[title_normalized] = enriched
+                        logger.debug(f"Replacing duplicate title '{title[:50]}...' with higher DOI")
+                    elif current_numeric == existing_numeric:
+                        # If DOIs are equal, keep the one with higher relevance score
+                        if enriched['relevance_score'] > existing_work['relevance_score']:
+                            title_to_work_map[title_normalized] = enriched
+                            logger.debug(f"Replacing duplicate title '{title[:50]}...' with higher score")
+                    # else: keep existing work
+                else:
+                    # First occurrence of this title
+                    title_to_work_map[title_normalized] = enriched
         
+        # Convert map back to list
+        analyzed = list(title_to_work_map.values())
+        
+        # Sort by relevance score (descending)
         analyzed.sort(key=lambda x: x['relevance_score'], reverse=True)
-        return analyzed[:top_n]
+        
+        # Apply top_n limit
+        result = analyzed[:top_n]
+        
+        # Log summary statistics
+        logger.info(f"Found {len(result)} unique works after filtering")
+        logger.info(f"Removed {len(works) - len(analyzed)} works due to filters")
+        if len(analyzed) > len(result):
+            logger.info(f"Limited from {len(analyzed)} to {len(result)} works by top_n parameter")
+        
+        return result
+
+def extract_numeric_from_doi(doi: str) -> int:
+    """
+    Extract numeric suffix from DOI for comparison.
+    
+    Examples:
+        "10.5281/zenodo.17747567" -> 17747567
+        "10.1002/anie.202000001" -> 202000001
+        "10.1038/nature12345" -> 12345
+    
+    Args:
+        doi: DOI string
+    
+    Returns:
+        Integer value of the numeric suffix, or 0 if no number found
+    """
+    if not doi:
+        return 0
+    
+    # Try to find the last numeric sequence in the DOI
+    # First, split by common separators
+    parts = doi.replace('.', '/').replace('-', '/').split('/')
+    
+    # Look for numeric parts from the end
+    for part in reversed(parts):
+        if part.isdigit():
+            return int(part)
+    
+    # If no pure numeric parts, try to extract numbers from mixed strings
+    import re
+    numbers = re.findall(r'\d+', doi)
+    if numbers:
+        # Use the last number found (often version or ID)
+        return int(numbers[-1])
+    
+    return 0
 
 # ============================================================================
 # ФУНКЦИИ ЭКСПОРТА
@@ -2578,6 +2737,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
