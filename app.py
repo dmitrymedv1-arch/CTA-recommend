@@ -279,504 +279,6 @@ COMMON_WORDS = {
 ALL_STOPWORDS = set(stopwords.words('english')).union(COMMON_WORDS)
 
 # ============================================================================
-# НОВЫЕ КЛАССЫ ДЛЯ ХИМИЧЕСКОГО АНАЛИЗА
-# ============================================================================
-
-class ChemicalFormulaAnalyzer:
-    def __init__(self):
-        # Паттерны для распознавания химических формул
-        self.patterns = {
-            'simple_formula': r'\b([A-Z][a-z]?\d*)+',  # BaTiO3, La2O3
-            'doped_formula': r'\b([A-Z][a-z]?)\([^)]+\)O\d*',  # La(Fe,Ni)O3
-            'layered_formula': r'\b([A-Z][a-z]?)\d+[A-Z][a-z]?\d+O\d*',  # La2NiO4
-            'composite': r'\b([A-Z][a-z]?\d*[/-][A-Z][a-z]?\d*)',  # BaTiO3/SrTiO3
-            'solid_solution': r'\b([A-Z][a-z]?)_{?\d+\.\d+}[A-Z][a-z]?',  # Ba_0.6Sr_0.4TiO3
-        }
-        
-        # Элементы для поиска (можно расширить)
-        self.elements = {
-            'La', 'Ni', 'O', 'Co', 'Fe', 'Mn', 'Cu', 'Zn', 'Ti', 'Zr',
-            'Ba', 'Sr', 'Ca', 'Pb', 'Bi', 'Na', 'K', 'Li', 'Mg', 'Al',
-            'Si', 'Ge', 'Sn', 'Ce', 'Pr', 'Nd', 'Sm', 'Gd', 'Y', 'Sc',
-            'Hf', 'Ta', 'Nb', 'Mo', 'W', 'Ru', 'Rh', 'Pd', 'Pt', 'Ag',
-            'Au', 'Ir', 'Os', 'Re', 'Cr', 'V', 'Mn', 'P', 'S', 'Cl',
-            'F', 'Br', 'I', 'As', 'Se', 'Te', 'Sb', 'Cd', 'Hg', 'Ga',
-            'In', 'Tl', 'Pb', 'Sn', 'Ge', 'Si', 'B', 'C', 'N'
-        }
-    
-    def extract_chemical_entities(self, text: str) -> List[Dict]:
-        """Извлечение химических формул и соединений"""
-        entities = []
-        
-        if not text:
-            return entities
-        
-        text_str = str(text)
-        
-        # 1. Простые формулы (LaNiO3, BaTiO3)
-        for match in re.finditer(r'\b([A-Z][a-z]?\d*)+\b', text_str):
-            formula = match.group()
-            if self._is_valid_formula(formula):
-                elements = self._extract_elements(formula)
-                entities.append({
-                    'type': 'simple_formula',
-                    'formula': formula,
-                    'elements': elements,
-                    'normalized': self._normalize_formula(formula)
-                })
-        
-        # 2. Составные формулы с запятыми/скобками
-        for match in re.finditer(r'\b([A-Z][a-z]?[\(\)\d\.,\s\-]+[A-Za-z\d]+)', text_str):
-            formula = match.group()
-            # Проверка на наличие химических элементов
-            if any(elem in formula for elem in self.elements):
-                entities.append({
-                    'type': 'complex_formula',
-                    'formula': formula,
-                    'elements': self._extract_elements(formula),
-                    'normalized': self._normalize_complex_formula(formula)
-                })
-        
-        # 3. Замещенные соединения (допированные)
-        doped_patterns = [
-            r'([A-Z][a-z]?)([A-Z][a-z]?)_{?(\d[\.\d]*)}?([A-Z][a-z]?)_{?(\d[\.\d]*)}?O',  # LaNi_0.5Fe_0.5O3
-            r'([A-Z][a-z]?)\(([^)]+)\)O',  # La(Fe,Co)O3
-        ]
-        
-        for pattern in doped_patterns:
-            for match in re.finditer(pattern, text_str):
-                formula = match.group()
-                entities.append({
-                    'type': 'doped_formula',
-                    'formula': formula,
-                    'base': match.group(1) if match.groups() else None,
-                    'elements': self._extract_elements(formula),
-                    'normalized': self._normalize_doped_formula(formula)
-                })
-        
-        # 4. Формулы с нижними индексами
-        for match in re.finditer(r'\b([A-Z][a-z]?)_\{?(\d+(?:\.\d+)?)\}?([A-Z][a-z]?)_\{?(\d+(?:\.\d+)?)\}?O\d*', text_str):
-            formula = match.group()
-            entities.append({
-                'type': 'indexed_formula',
-                'formula': formula,
-                'elements': self._extract_elements(formula),
-                'normalized': self._normalize_formula(formula)
-            })
-        
-        # Удаляем дубликаты по формуле
-        unique_entities = []
-        seen_formulas = set()
-        for entity in entities:
-            if entity['formula'] not in seen_formulas:
-                seen_formulas.add(entity['formula'])
-                unique_entities.append(entity)
-        
-        return unique_entities
-    
-    def _is_valid_formula(self, formula: str) -> bool:
-        """Проверка, является ли строка химической формулой"""
-        # Удаляем цифры и проверяем наличие химических элементов
-        letters = re.sub(r'\d+', '', formula)
-        return any(elem in formula for elem in self.elements) and len(letters) >= 2
-    
-    def _extract_elements(self, formula: str) -> List[str]:
-        """Извлечение элементов из формулы"""
-        elements = []
-        i = 0
-        formula_clean = re.sub(r'[\(\)\{\}_]', '', formula)  # Удаляем скобки и нижние индексы
-        
-        while i < len(formula_clean):
-            if formula_clean[i].isupper():
-                elem = formula_clean[i]
-                if i + 1 < len(formula_clean) and formula_clean[i+1].islower():
-                    elem += formula_clean[i+1]
-                    i += 1
-                # Проверяем, что это известный элемент
-                if elem in self.elements:
-                    elements.append(elem)
-            i += 1
-        
-        return list(set(elements))  # Уникальные элементы
-    
-    def _normalize_formula(self, formula: str) -> str:
-        """Нормализация формулы (приведение к каноническому виду)"""
-        # Удаление лишних пробелов, приведение к единому регистру
-        normalized = formula.strip()
-        
-        # Удаление пробелов в формуле
-        normalized = normalized.replace(' ', '')
-        
-        # Приведение O2, O3 к O (только для оксидов)
-        if 'O' in normalized:
-            normalized = re.sub(r'O(\d+)', 'O', normalized)
-        
-        # Удаление лишних символов
-        normalized = re.sub(r'[\(\)\{\}_]', '', normalized)
-        
-        return normalized
-    
-    def _normalize_complex_formula(self, formula: str) -> str:
-        """Нормализация комплексных формул"""
-        normalized = formula.strip()
-        
-        # Удаление пробелов вокруг запятых и скобок
-        normalized = re.sub(r'\s*,\s*', ',', normalized)
-        normalized = re.sub(r'\s*\(\s*', '(', normalized)
-        normalized = re.sub(r'\s*\)\s*', ')', normalized)
-        
-        return normalized
-    
-    def _normalize_doped_formula(self, formula: str) -> str:
-        """Нормализация допированных формул"""
-        normalized = formula.strip()
-        
-        # Замена подчеркиваний и скобок
-        normalized = normalized.replace('{', '').replace('}', '')
-        
-        return normalized
-    
-    def group_by_chemical_family(self, formulas: List[str]) -> Dict[str, List[str]]:
-        """Группировка формул по химическим семействам"""
-        families = {}
-        
-        for formula in formulas:
-            # Извлекаем основные элементы
-            elements = self._extract_elements(formula)
-            if not elements:
-                continue
-            
-            # Создаем ключ семейства (например, "La-Ni-O")
-            elements_sorted = sorted(set(elements))
-            family_key = '-'.join(elements_sorted)
-            
-            if family_key not in families:
-                families[family_key] = {
-                    'formulas': [],
-                    'elements': elements_sorted
-                }
-            
-            if formula not in families[family_key]['formulas']:
-                families[family_key]['formulas'].append(formula)
-        
-        return families
-    
-    def calculate_chemical_similarity(self, formula1: str, formula2: str) -> float:
-        """Расчет химической схожести между двумя формулами"""
-        elements1 = set(self._extract_elements(formula1))
-        elements2 = set(self._extract_elements(formula2))
-        
-        if not elements1 or not elements2:
-            return 0.0
-        
-        # Коэффициент Жаккара
-        intersection = len(elements1.intersection(elements2))
-        union = len(elements1.union(elements2))
-        
-        if union == 0:
-            return 0.0
-        
-        similarity = intersection / union
-        
-        # Бонус за одинаковые основные элементы (первые в формуле)
-        formula1_norm = self._normalize_formula(formula1)
-        formula2_norm = self._normalize_formula(formula2)
-        
-        if formula1_norm[:3] == formula2_norm[:3]:
-            similarity += 0.2
-        
-        return min(similarity, 1.0)
-
-class MaterialsSemanticAnalyzer:
-    def __init__(self):
-        # Классификация материалов по типам
-        self.material_types = {
-            'perovskite': ['ab03', 'перовскит', 'perovskite'],
-            'spinel': ['ab2o4', 'шпинель', 'spinel'],
-            'fluorite': ['ao2', 'флюорит', 'fluorite'],
-            'layered': ['слоистый', 'layered', 'ruddlesden', 'popper'],
-            'composite': ['композит', 'composite', 'гибрид', 'hybrid'],
-            'nanomaterial': ['нан', 'nano', 'квант', 'quantum', 'nanoparticle'],
-            'thin_film': ['пленка', 'film', 'тонкий слой', 'thin film'],
-            'catalyst': ['катализатор', 'catalyst', 'каталитический'],
-            'electrode': ['электрод', 'electrode'],
-            'membrane': ['мембрана', 'membrane'],
-            'ceramic': ['керамик', 'ceramic'],
-            'polymer': ['полимер', 'polymer'],
-            'alloy': ['сплав', 'alloy'],
-            'semiconductor': ['полупроводник', 'semiconductor'],
-        }
-        
-        # Свойства материалов
-        self.properties = {
-            'electrical': ['проводимость', 'conductivity', 'сопротивление', 'resistivity', 'electrical'],
-            'magnetic': ['магнит', 'magnetic', 'ферромагнит', 'ferromagnetic', 'magnetization'],
-            'optical': ['оптический', 'optical', 'люминесцент', 'luminescent', 'photoluminescence'],
-            'catalytic': ['каталитический', 'catalytic', 'активность', 'activity', 'catalysis'],
-            'structural': ['структур', 'structural', 'кристалл', 'crystal', 'xrd', 'diffraction'],
-            'thermal': ['тепловой', 'thermal', 'термо', 'thermo', 'теплопроводность'],
-            'mechanical': ['механический', 'mechanical', 'прочность', 'strength', 'hardness'],
-            'electrochemical': ['электрохимический', 'electrochemical', 'емкость', 'capacity', 'battery'],
-        }
-        
-        # Применения материалов
-        self.applications = {
-            'fuel_cell': ['топливный элемент', 'fuel cell', 'sofc', 'soec', 'solid oxide'],
-            'battery': ['батарея', 'battery', 'аккумулятор', 'li-ion', 'lithium', 'energy storage'],
-            'catalysis': ['катализ', 'catalysis', 'реформинг', 'reforming', 'oxidation'],
-            'sensor': ['сенсор', 'sensor', 'датчик', 'detection', 'sensing'],
-            'memory': ['память', 'memory', 'memristor', 'ferroelectric'],
-            'energy_storage': ['хранение энергии', 'energy storage', 'суперконденсатор', 'supercapacitor'],
-            'photocatalysis': ['фотокатализ', 'photocatalysis', 'water splitting'],
-            'photovoltaic': ['фотовольтаический', 'photovoltaic', 'solar cell', 'солнечная ячейка'],
-        }
-    
-    def analyze_materials_context(self, text: str) -> Dict:
-        """Анализ контекста материалов в тексте"""
-        result = {
-            'material_types': [],
-            'properties_studied': [],
-            'applications': [],
-            'chemical_context': []
-        }
-        
-        if not text:
-            return result
-        
-        text_lower = text.lower()
-        
-        # Определение типа материала
-        for mat_type, keywords in self.material_types.items():
-            if any(keyword in text_lower for keyword in keywords):
-                result['material_types'].append(mat_type)
-        
-        # Определение изучаемых свойств
-        for prop, keywords in self.properties.items():
-            if any(keyword in text_lower for keyword in keywords):
-                result['properties_studied'].append(prop)
-        
-        # Определение применений
-        for app, keywords in self.applications.items():
-            if any(keyword in text_lower for keyword in keywords):
-                result['applications'].append(app)
-        
-        # Извлечение химического контекста
-        chem_patterns = [
-            r'synthesis of',
-            r'preparation of',
-            r'fabrication of',
-            r'growth of',
-            r'characterization of',
-            r'study of',
-            r'properties of',
-            r'application of',
-        ]
-        
-        for pattern in chem_patterns:
-            if re.search(pattern, text_lower):
-                result['chemical_context'].append(pattern.replace(' of', ''))
-        
-        return result
-    
-    def get_research_focus_weight(self, focus_areas: List[str]) -> float:
-        """Вес исследовательского фокуса"""
-        weights = {
-            'synthesis': 1.0,
-            'preparation': 1.0,
-            'fabrication': 1.0,
-            'properties': 1.2,  # Свойства часто важнее для рекомендаций
-            'characterization': 1.1,
-            'application': 1.3,  # Применения - наиболее релевантны
-            'study': 1.0,
-            'growth': 1.0,
-        }
-        
-        total_weight = 0.0
-        for focus in focus_areas:
-            total_weight += weights.get(focus, 1.0)
-        
-        return total_weight
-
-class HybridRelevanceScorer:
-    def __init__(self):
-        # Веса для разных компонентов релевантности
-        self.keyword_weight = 0.40
-        self.chemical_weight = 0.35  # Высокий вес для химических формул
-        self.semantic_weight = 0.15
-        self.recency_weight = 0.10
-        
-        # Инициализация анализаторов
-        self.chemical_analyzer = ChemicalFormulaAnalyzer()
-        self.semantic_analyzer = MaterialsSemanticAnalyzer()
-        
-        # Настройки химического анализа
-        self.chemical_score_config = {
-            'simple_formula': 2.0,
-            'complex_formula': 2.5,
-            'doped_formula': 3.0,
-            'indexed_formula': 2.8,
-            'element_match': 1.5,
-            'family_similarity': 2.0,
-        }
-    
-    def score_work(self, work: dict, keywords: Dict[str, float], 
-                   keyword_analyzer, reference_chemicals: List[Dict] = None) -> Tuple[float, List[str], Dict]:
-        """Гибридный расчет релевантности работы"""
-        
-        # 1. Базовый score по ключевым словам (существующий подход)
-        base_score, matched_keywords = calculate_enhanced_relevance(work, keywords, keyword_analyzer)
-        keyword_score = base_score
-        
-        # 2. Химический score
-        chemical_score, chemical_matches = self._calculate_chemical_score(
-            work, keywords, reference_chemicals
-        )
-        
-        # 3. Семантический score
-        semantic_score, semantic_info = self._calculate_semantic_score(work)
-        
-        # 4. Recency score
-        recency_score = self._calculate_recency_score(work)
-        
-        # 5. Комбинированный score с весами
-        total_score = (
-            self.keyword_weight * keyword_score +
-            self.chemical_weight * chemical_score +
-            self.semantic_weight * semantic_score +
-            self.recency_weight * recency_score
-        )
-        
-        # Собираем информацию о матчах
-        all_matches = matched_keywords.copy()
-        if chemical_matches:
-            all_matches.extend([f"⚗️ {cm}" for cm in chemical_matches])
-        
-        additional_info = {
-            'keyword_score': keyword_score,
-            'chemical_score': chemical_score,
-            'semantic_score': semantic_score,
-            'recency_score': recency_score,
-            'chemical_matches': chemical_matches,
-            'semantic_info': semantic_info,
-        }
-        
-        return total_score, all_matches, additional_info
-    
-    def _calculate_chemical_score(self, work: dict, keywords: Dict[str, float], 
-                                 reference_chemicals: List[Dict] = None) -> Tuple[float, List[str]]:
-        """Расчет химического score"""
-        title = work.get('title', '')
-        abstract = work.get('abstract', '')
-        
-        if not title:
-            return 0.0, []
-        
-        # Извлекаем химические формулы из работы
-        formulas = self.chemical_analyzer.extract_chemical_entities(title)
-        if abstract:
-            formulas.extend(self.chemical_analyzer.extract_chemical_entities(abstract))
-        
-        if not formulas:
-            return 0.0, []
-        
-        chemical_score = 0.0
-        chemical_matches = []
-        
-        # Вес за наличие химических формул
-        for formula_info in formulas:
-            formula_type = formula_info['type']
-            formula = formula_info['formula']
-            
-            # Базовый вес за тип формулы
-            type_weight = self.chemical_score_config.get(formula_type, 1.0)
-            chemical_score += type_weight
-            chemical_matches.append(f"{formula} ({formula_type})")
-            
-            # Дополнительный вес за совпадение элементов с ключевыми словами
-            elements = formula_info.get('elements', [])
-            for element in elements:
-                element_lower = element.lower()
-                # Проверяем, есть ли элемент в ключевых словах
-                for keyword in keywords.keys():
-                    if element_lower in keyword.lower():
-                        chemical_score += self.chemical_score_config['element_match']
-                        chemical_matches.append(f"Element: {element}")
-                        break
-        
-        # Сравнение с reference chemicals (если есть)
-        if reference_chemicals:
-            for ref_chem in reference_chemicals:
-                for work_formula_info in formulas:
-                    similarity = self.chemical_analyzer.calculate_chemical_similarity(
-                        ref_chem.get('formula', ''),
-                        work_formula_info.get('formula', '')
-                    )
-                    if similarity > 0.3:  # Порог схожести
-                        chemical_score += similarity * self.chemical_score_config['family_similarity']
-                        chemical_matches.append(f"Similar to: {ref_chem.get('formula', '')}")
-        
-        return min(chemical_score, 10.0), chemical_matches
-    
-    def _calculate_semantic_score(self, work: dict) -> Tuple[float, Dict]:
-        """Расчет семантического score"""
-        title = work.get('title', '')
-        abstract = work.get('abstract', '')
-        
-        if not title:
-            return 0.0, {}
-        
-        # Анализ семантического контекста
-        semantic_info = self.semantic_analyzer.analyze_materials_context(title)
-        if abstract:
-            abstract_info = self.semantic_analyzer.analyze_materials_context(abstract)
-            # Объединяем информацию
-            for key in semantic_info:
-                if key in abstract_info:
-                    semantic_info[key] = list(set(semantic_info[key] + abstract_info[key]))
-        
-        # Расчет веса на основе исследовательского фокуса
-        focus_weight = self.semantic_analyzer.get_research_focus_weight(
-            semantic_info.get('chemical_context', [])
-        )
-        
-        # Базовый score за наличие семантической информации
-        semantic_score = 0.0
-        
-        if semantic_info.get('material_types'):
-            semantic_score += len(semantic_info['material_types']) * 0.5
-        
-        if semantic_info.get('properties_studied'):
-            semantic_score += len(semantic_info['properties_studied']) * 0.7
-        
-        if semantic_info.get('applications'):
-            semantic_score += len(semantic_info['applications']) * 0.8
-        
-        # Умножаем на вес фокуса
-        semantic_score *= focus_weight
-        
-        return min(semantic_score, 5.0), semantic_info
-    
-    def _calculate_recency_score(self, work: dict) -> float:
-        """Расчет score за новизну"""
-        publication_year = work.get('publication_year', 0)
-        current_year = datetime.now().year
-        
-        if publication_year <= 0:
-            return 0.0
-        
-        # Нормализованный score: более свежие статьи получают более высокий score
-        year_diff = current_year - publication_year
-        
-        if year_diff <= 1:
-            return 1.0
-        elif year_diff <= 3:
-            return 0.8
-        elif year_diff <= 5:
-            return 0.5
-        else:
-            return 0.2
-
-# ============================================================================
 # КЭШИРОВАНИЕ НА УРОВНЕ SQLite
 # ============================================================================
 
@@ -1957,10 +1459,6 @@ class EnhancedKeywordAnalyzer:
         
         return weighted_counter
 
-# ============================================================================
-# ОБНОВЛЕННЫЕ ФУНКЦИИ ДЛЯ РАСЧЕТА РЕЛЕВАНТНОСТИ С ХИМИЧЕСКИМ АНАЛИЗОМ
-# ============================================================================
-
 def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float], 
                                  analyzer: TitleKeywordsAnalyzer) -> Tuple[float, List[str]]:
     """Расчет релевантности с учетом семантической близости"""
@@ -2015,79 +1513,6 @@ def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float],
     
     return score, matched_keywords
 
-def calculate_enhanced_relevance_with_chemistry(work: dict, keywords: Dict[str, float], 
-                                                analyzer: TitleKeywordsAnalyzer, 
-                                                chemical_analyzer: ChemicalFormulaAnalyzer,
-                                                reference_chemicals: List[Dict] = None) -> Tuple[float, List[str], Dict]:
-    """Расчет релевантности с химическим анализом"""
-    
-    # Базовый score по ключевым словам
-    score, matched_keywords = calculate_enhanced_relevance(work, keywords, analyzer)
-    
-    # ДОПОЛНИТЕЛЬНЫЙ ВЕС за химические совпадения
-    title = work.get('title', '')
-    abstract = work.get('abstract', '')
-    
-    chemical_info = {
-        'formulas': [],
-        'elements': set(),
-        'chemical_score': 0.0,
-        'chemical_matches': []
-    }
-    
-    if title:
-        formulas = chemical_analyzer.extract_chemical_entities(title)
-        chemical_info['formulas'] = [f['formula'] for f in formulas]
-        
-        for formula_info in formulas:
-            # Вес зависит от типа формулы
-            if formula_info['type'] == 'simple_formula':
-                score += 2.0
-                chemical_info['chemical_score'] += 2.0
-            elif formula_info['type'] == 'doped_formula':
-                score += 3.0  # Более специфичные формулы важнее
-                chemical_info['chemical_score'] += 3.0
-            elif formula_info['type'] == 'complex_formula':
-                score += 2.5
-                chemical_info['chemical_score'] += 2.5
-            elif formula_info['type'] == 'indexed_formula':
-                score += 2.8
-                chemical_info['chemical_score'] += 2.8
-            
-            chemical_info['chemical_matches'].append(f"{formula_info['formula']} ({formula_info['type']})")
-            
-            # Дополнительный вес за совпадение элементов
-            elements = formula_info.get('elements', [])
-            chemical_info['elements'].update(elements)
-            
-            for element in elements:
-                element_lower = element.lower()
-                # Проверяем, есть ли элемент в ключевых словах
-                for keyword in keywords.keys():
-                    if element_lower in keyword.lower():
-                        score += 1.5
-                        chemical_info['chemical_score'] += 1.5
-                        chemical_info['chemical_matches'].append(f"Element: {element}")
-                        break
-    
-    # Сравнение с reference chemicals (если есть)
-    if reference_chemicals and chemical_info['formulas']:
-        for ref_chem in reference_chemicals:
-            ref_formula = ref_chem.get('formula', '')
-            for work_formula in chemical_info['formulas']:
-                similarity = chemical_analyzer.calculate_chemical_similarity(ref_formula, work_formula)
-                if similarity > 0.3:  # Порог схожести
-                    bonus = similarity * 2.0
-                    score += bonus
-                    chemical_info['chemical_score'] += bonus
-                    chemical_info['chemical_matches'].append(f"Similar to: {ref_formula}")
-    
-    return score, matched_keywords, chemical_info
-
-# ============================================================================
-# ФУНКЦИИ ФИЛЬТРАЦИИ И АНАЛИЗА
-# ============================================================================
-
 def passes_filters(work: dict, year_filter: List[int], 
                    citation_ranges: List[Tuple[int, int]]) -> bool:
     """Проверяет работу на соответствие фильтрам"""
@@ -2122,7 +1547,7 @@ def analyze_works_for_topic(
 ) -> List[dict]:
     """
     Analyze works for a specific topic with filtering of input DOIs and duplicate titles.
-    ИСПОЛЬЗУЕТ УЛУЧШЕННЫЙ АЛГОРИТМ С СЕМАНТИЧЕСКОЙ БЛИЗОСТЬЮ И ХИМИЧЕСКИМ АНАЛИЗОМ.
+    ИСПОЛЬЗУЕТ УЛУЧШЕННЫЙ АЛГОРИТМ С СЕМАНТИЧЕСКОЙ БЛИЗОСТЬЮ.
     
     Args:
         topic_id: OpenAlex topic ID
@@ -2165,8 +1590,6 @@ def analyze_works_for_topic(
     # Инициализация анализаторов
     title_analyzer = TitleKeywordsAnalyzer()
     keyword_analyzer = EnhancedKeywordAnalyzer()
-    chemical_analyzer = ChemicalFormulaAnalyzer()
-    hybrid_scorer = HybridRelevanceScorer()
     
     # Преобразуем ключевые слова в взвешенный словарь
     keywords_lower = [kw.lower() for kw in keywords]
@@ -2186,19 +1609,10 @@ def analyze_works_for_topic(
     else:
         normalized_keywords = {}
     
-    # Извлекаем химические формулы из исходных работ для сравнения
-    reference_chemicals = []
-    if 'works_data' in st.session_state:
-        for work in st.session_state.works_data:
-            title = work.get('title', '')
-            if title:
-                formulas = chemical_analyzer.extract_chemical_entities(title)
-                reference_chemicals.extend(formulas)
-    
     # Track duplicate titles to keep only one version (with highest DOI number)
     title_to_work_map = {}
     
-    with st.spinner(f"Analyzing {len(works)} works with enhanced hybrid algorithm..."):
+    with st.spinner(f"Analyzing {len(works)} works with enhanced algorithm..."):
         analyzed = []
         
         for work in works:
@@ -2235,35 +1649,18 @@ def analyze_works_for_topic(
                 logger.debug(f"Excluding work with input DOI: {doi_clean}")
                 continue
             
-            # Calculate enhanced relevance score with chemistry
-            relevance_score, matched_keywords, chemical_info = calculate_enhanced_relevance_with_chemistry(
-                work, normalized_keywords, title_analyzer, chemical_analyzer, reference_chemicals
+            # Calculate enhanced relevance score
+            relevance_score, matched_keywords = calculate_enhanced_relevance(
+                work, normalized_keywords, title_analyzer
             )
             
-            # Альтернативно используем гибридный скорер
-            hybrid_score, hybrid_matches, additional_info = hybrid_scorer.score_work(
-                work, normalized_keywords, title_analyzer, reference_chemicals
-            )
-            
-            # Используем максимальный score из двух методов
-            final_score = max(relevance_score, hybrid_score)
-            
-            if final_score > 0:
+            if relevance_score > 0:
                 enriched = enrich_work_data(work)
                 enriched.update({
-                    'relevance_score': final_score,
+                    'relevance_score': relevance_score,
                     'matched_keywords': matched_keywords,
-                    'hybrid_score': hybrid_score,
-                    'chemical_score': additional_info.get('chemical_score', 0),
-                    'semantic_score': additional_info.get('semantic_score', 0),
-                    'chemical_formulas': chemical_info.get('formulas', []),
-                    'chemical_elements': list(chemical_info.get('elements', set())),
                     'analysis_time': datetime.now().isoformat()
                 })
-                
-                # Объединяем матчи из обоих методов
-                all_matches = list(set(matched_keywords + hybrid_matches))
-                enriched['all_matches'] = all_matches
                 
                 # RULE 2: Handle duplicate titles
                 title_normalized = title.strip().lower()
@@ -2296,12 +1693,11 @@ def analyze_works_for_topic(
         # Convert map back to list
         analyzed = list(title_to_work_map.values())
         
-        # Многокритериальная сортировка с учетом химического score
+        # Многокритериальная сортировка
         analyzed.sort(key=lambda x: (
-            -x['relevance_score'],          # 1. Общая релевантность
-            -x.get('chemical_score', 0),    # 2. Химический score
-            -x.get('publication_year', 0),  # 3. Новизна
-            -x.get('cited_by_count', 0)     # 4. Цитирования (в пределах диапазона)
+            -x['relevance_score'],          # 1. Релевантность
+            -x.get('publication_year', 0),  # 2. Новизна
+            -x.get('cited_by_count', 0)     # 3. Цитирования (в пределах диапазона)
         ))
         
         # Apply top_n limit
@@ -2312,17 +1708,6 @@ def analyze_works_for_topic(
         logger.info(f"Removed {len(works) - len(analyzed)} works due to filters")
         if len(analyzed) > len(result):
             logger.info(f"Limited from {len(analyzed)} to {len(result)} works by top_n parameter")
-        
-        # Сохраняем химическую статистику в сессии
-        if result:
-            chemical_formulas_count = sum(len(w.get('chemical_formulas', [])) for w in result)
-            chemical_elements_count = sum(len(w.get('chemical_elements', [])) for w in result)
-            st.session_state['chemical_stats'] = {
-                'total_formulas': chemical_formulas_count,
-                'unique_elements': len(set().union(*[set(w.get('chemical_elements', [])) for w in result])),
-                'papers_with_formulas': sum(1 for w in result if w.get('chemical_formulas')),
-                'avg_chemical_score': np.mean([w.get('chemical_score', 0) for w in result])
-            }
         
         return result
 
@@ -2493,17 +1878,6 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         fontName='Helvetica-Oblique'
     )
     
-    # Стиль для химической информации
-    chemical_style = ParagraphStyle(
-        'CustomChemical',
-        parent=styles['Normal'],
-        fontSize=8,
-        textColor=colors.HexColor('#8E44AD'),
-        spaceAfter=2,
-        alignment=TA_LEFT,
-        fontName='Helvetica-Bold'
-    )
-    
     # Стиль для нижнего колонтитула
     footer_style = ParagraphStyle(
         'CustomFooter',
@@ -2595,7 +1969,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         story.append(Spacer(1, 0.3*cm))
     
     story.append(Paragraph("CTA Article Recommender Pro", title_style))
-    story.append(Paragraph("Advanced Chemistry-Aware Paper Analysis", subtitle_style))
+    story.append(Paragraph("Fresh Papers Analysis Report", subtitle_style))
     story.append(Spacer(1, 0.8*cm))
     
     # Информация о теме
@@ -2614,15 +1988,10 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         oa_count = sum(1 for w in data if w.get('is_oa'))
         recent_count = sum(1 for w in data if w.get('publication_year', 0) >= datetime.now().year - 2)
         
-        # Химическая статистика
-        chemical_formulas_count = sum(len(w.get('chemical_formulas', [])) for w in data)
-        papers_with_chemistry = sum(1 for w in data if w.get('chemical_formulas'))
-        
         stats_text = f"""
         Average citations: {avg_citations:.1f} | 
         Open Access papers: {oa_count} | 
-        Recent papers (≤2 years): {recent_count} |
-        Papers with chemical formulas: {papers_with_chemistry}
+        Recent papers (≤2 years): {recent_count}
         """
         story.append(Paragraph(stats_text, meta_style))
     
@@ -2631,7 +2000,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # Копирайт информация
     story.append(Paragraph("© CTA - Chimica Techno Acta", footer_style))
     story.append(Paragraph("https://chimicatechnoacta.ru", footer_style))
-    story.append(Paragraph("Developed by daM© with Advanced Chemistry Analysis", footer_style))
+    story.append(Paragraph("Developed by daM©", footer_style))
     
     # Разделитель страниц
     story.append(PageBreak())
@@ -2654,8 +2023,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         ["Publication Years", ", ".join(map(str, selected_years))],
         ["Citation Ranges", format_citation_ranges(selected_ranges)],
         ["Analysis Date", current_date],
-        ["Papers Found", len(data)],
-        ["Chemistry-Aware Analysis", "Enabled"]
+        ["Papers Found", len(data)]
     ]
     
     initial_table = Table(initial_data, colWidths=[doc.width/2.5, doc.width*3/5])
@@ -2790,34 +2158,15 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         year = work.get('publication_year', 'N/A')
         relevance = work.get('relevance_score', 0)
         journal = clean_text(work.get('journal_name', 'N/A')[:40])
-        chemical_score = work.get('chemical_score', 0)
         
         metrics_text = f"""
         <b>Citations:</b> {citations} | 
         <b>Year:</b> {year} | 
         <b>Relevance Score:</b> {relevance}/10 | 
-        <b>Chemistry Score:</b> {chemical_score:.1f} | 
         <b>Journal:</b> {journal} | 
         <b>Open Access:</b> {'Yes' if work.get('is_oa') else 'No'}
         """
         story.append(Paragraph(metrics_text, metrics_style))
-        
-        # Химическая информация (если есть)
-        chemical_formulas = work.get('chemical_formulas', [])
-        chemical_elements = work.get('chemical_elements', [])
-        
-        if chemical_formulas:
-            formulas_text = ', '.join(chemical_formulas[:3])
-            if len(chemical_formulas) > 3:
-                formulas_text += f' +{len(chemical_formulas)-3} more'
-            
-            elements_text = ', '.join(chemical_elements[:5]) if chemical_elements else 'None'
-            
-            chem_text = f"""
-            <b>Chemical Formulas:</b> {clean_text(formulas_text)} | 
-            <b>Elements:</b> {clean_text(elements_text)}
-            """
-            story.append(Paragraph(chem_text, chemical_style))
         
         # Ключевые слова (если есть)
         if work.get('matched_keywords'):
@@ -2854,17 +2203,8 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         # Подготовка данных для статистики
         citations_list = [w.get('cited_by_count', 0) for w in data]
         years_list = [w.get('publication_year', 0) for w in data if w.get('publication_year', 0) > 1900]
-        chemical_scores = [w.get('chemical_score', 0) for w in data]
-        relevance_scores = [w.get('relevance_score', 0) for w in data]
         
         if citations_list and years_list:
-            # Химическая статистика
-            papers_with_chemistry = sum(1 for w in data if w.get('chemical_formulas'))
-            total_formulas = sum(len(w.get('chemical_formulas', [])) for w in data)
-            all_elements = set()
-            for w in data:
-                all_elements.update(w.get('chemical_elements', []))
-            
             # Базовая статистика
             stats_data = [
                 ["Metric", "Value"],
@@ -2876,11 +2216,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
                 ["Open Access Papers", sum(1 for w in data if w.get('is_oa'))],
                 ["Average Year", f"{np.mean(years_list):.1f}"],
                 ["Most Recent Year", max(years_list) if years_list else "N/A"],
-                ["Average Relevance", f"{np.mean(relevance_scores):.2f}/10"],
-                ["Papers with Chemistry", f"{papers_with_chemistry} ({papers_with_chemistry/len(data)*100:.1f}%)"],
-                ["Total Chemical Formulas", total_formulas],
-                ["Unique Elements", len(all_elements)],
-                ["Average Chemistry Score", f"{np.mean(chemical_scores):.2f}"]
+                ["Average Relevance", f"{np.mean([w.get('relevance_score', 0) for w in data]):.2f}/10"]
             ]
             
             # Создаем таблицу статистики
@@ -2933,14 +2269,12 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # Рекомендации на основе анализа
     conclusions = [
         f"This report analyzed {len(data)} fresh papers in the field of '{topic_name}'.",
-        f"Chemistry-aware analysis identified chemical formulas in papers, providing enhanced relevance scoring.",
         "Papers with low citation counts often represent emerging ideas or niche research areas.",
         "Consider these papers for:",
         "• Literature reviews of emerging topics",
         "• Identifying research gaps",
         "• Finding novel methodologies",
-        "• Cross-disciplinary connections",
-        "• Chemical compound analysis and similarity"
+        "• Cross-disciplinary connections"
     ]
     
     for conclusion in conclusions:
@@ -2959,11 +2293,10 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # Заключительные замечания
     story.append(Paragraph("FINAL NOTES", subtitle_style))
     final_notes = [
-        "This report was generated automatically by CTA Article Recommender Pro with Advanced Chemistry Analysis.",
+        "This report was generated automatically by CTA Article Recommender Pro.",
         "All data is sourced from OpenAlex API and is subject to their terms of use.",
         "For the most current data, please visit the original sources via the provided DOIs.",
-        "Citation counts are as of the report generation date and may change over time.",
-        "Chemical formula detection enhances relevance scoring for materials science and chemistry papers."
+        "Citation counts are as of the report generation date and may change over time."
     ]
     
     for note in final_notes:
@@ -2972,7 +2305,6 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # Нижний колонтитул на последней странице
     story.append(Spacer(1, 2*cm))
     story.append(Paragraph("© CTA Article Recommender Pro - https://chimicatechnoacta.ru", footer_style))
-    story.append(Paragraph("Advanced Chemistry-Aware Analysis Engine", footer_style))
     story.append(Paragraph(f"Report ID: {hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8]}", 
                          ParagraphStyle(
                              'ReportID',
@@ -2996,7 +2328,7 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
     # ========== ЗАГОЛОВОК ==========
     output.append("=" * 80)
     output.append("CTA Article Recommender Pro")
-    output.append("Advanced Chemistry-Aware Paper Analysis Report")
+    output.append("Under-Cited Papers Analysis Report")
     output.append("=" * 80)
     output.append("")
     
@@ -3016,22 +2348,14 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
         oa_count = sum(1 for w in data if w.get('is_oa'))
         recent_count = sum(1 for w in data if w.get('publication_year', 0) >= datetime.now().year - 2)
         
-        # Химическая статистика
-        papers_with_chemistry = sum(1 for w in data if w.get('chemical_formulas'))
-        total_formulas = sum(len(w.get('chemical_formulas', [])) for w in data)
-        avg_chemical_score = np.mean([w.get('chemical_score', 0) for w in data])
-        
         output.append(f"  Average citations: {avg_citations:.2f}")
         output.append(f"  Open Access papers: {oa_count}")
         output.append(f"  Recent papers (≤2 years): {recent_count}")
-        output.append(f"  Papers with chemical formulas: {papers_with_chemistry}")
-        output.append(f"  Total chemical formulas: {total_formulas}")
-        output.append(f"  Average chemistry score: {avg_chemical_score:.2f}")
     
     output.append("")
     output.append("© CTA - Chemical Technology Acta")
     output.append("https://chimicatechnoacta.ru")
-    output.append("Developed by daM© with Advanced Chemistry Analysis")
+    output.append("Developed by daM©")
     output.append("")
     output.append("=" * 80)
     output.append("")
@@ -3053,7 +2377,6 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
     output.append(f"  Citation Ranges: {format_citation_ranges(selected_ranges)}")
     output.append(f"  Analysis Date: {current_date}")
     output.append(f"  Papers Found: {len(data)}")
-    output.append(f"  Chemistry-Aware Analysis: Enabled")
     
     # Список DOI
     if initial_dois:
@@ -3086,22 +2409,14 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
     output.append("TABLE OF CONTENTS")
     output.append("-" * 40)
     
-    # Группируем статьи по релевантности и химическому score
+    # Группируем статьи по релевантности
     high_relevance = [w for w in data if w.get('relevance_score', 0) >= 8]
     medium_relevance = [w for w in data if 5 <= w.get('relevance_score', 0) < 8]
     low_relevance = [w for w in data if w.get('relevance_score', 0) < 5]
     
-    high_chemistry = [w for w in data if w.get('chemical_score', 0) >= 3]
-    medium_chemistry = [w for w in data if 1 <= w.get('chemical_score', 0) < 3]
-    low_chemistry = [w for w in data if w.get('chemical_score', 0) < 1]
-    
     output.append(f"  High Relevance (Score ≥ 8): {len(high_relevance)} papers")
     output.append(f"  Medium Relevance (5-7): {len(medium_relevance)} papers")
     output.append(f"  Low Relevance (Score < 5): {len(low_relevance)} papers")
-    output.append("")
-    output.append(f"  High Chemistry Score (≥3): {len(high_chemistry)} papers")
-    output.append(f"  Medium Chemistry Score (1-3): {len(medium_chemistry)} papers")
-    output.append(f"  Low Chemistry Score (<1): {len(low_chemistry)} papers")
     output.append("")
     
     # Быстрый обзор по годам
@@ -3128,34 +2443,15 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
     for i, work in enumerate(data, 1):
         # Номер и релевантность
         relevance_score = work.get('relevance_score', 0)
-        chemical_score = work.get('chemical_score', 0)
         relevance_stars = "★" * min(int(relevance_score), 5) + "☆" * max(5 - int(relevance_score), 0)
-        chemistry_stars = "⚗️" * min(int(chemical_score), 5) + " " * max(5 - int(chemical_score), 0)
         
         output.append(f"PAPER #{i:03d}")
         output.append(f"Relevance: {relevance_score}/10 {relevance_stars}")
-        output.append(f"Chemistry Score: {chemical_score:.1f} {chemistry_stars}")
         output.append("-" * 40)
         
         # Заголовок
         title = work.get('title', 'No title available')
         output.append(f"TITLE: {title}")
-        
-        # Химическая информация
-        chemical_formulas = work.get('chemical_formulas', [])
-        chemical_elements = work.get('chemical_elements', [])
-        
-        if chemical_formulas:
-            formulas_text = ', '.join(chemical_formulas[:3])
-            if len(chemical_formulas) > 3:
-                formulas_text += f' (+{len(chemical_formulas)-3} more)'
-            output.append(f"CHEMICAL FORMULAS: {formulas_text}")
-        
-        if chemical_elements:
-            elements_text = ', '.join(chemical_elements[:5])
-            if len(chemical_elements) > 5:
-                elements_text += f' (+{len(chemical_elements)-5} more)'
-            output.append(f"CHEMICAL ELEMENTS: {elements_text}")
         
         # Авторы
         authors = work.get('authors', [])
@@ -3174,7 +2470,6 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
         output.append(f"  • Year: {year}")
         output.append(f"  • Journal/Conference: {journal}")
         output.append(f"  • Open Access: {'Yes' if work.get('is_oa') else 'No'}")
-        output.append(f"  • Hybrid Score: {work.get('hybrid_score', 0):.1f}")
         
         # Ключевые слова
         if work.get('matched_keywords'):
@@ -3227,7 +2522,6 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
         
         citations_list = [w.get('cited_by_count', 0) for w in data]
         relevance_list = [w.get('relevance_score', 0) for w in data]
-        chemical_list = [w.get('chemical_score', 0) for w in data]
         
         if citations_list:
             output.append("CITATION ANALYSIS:")
@@ -3250,31 +2544,6 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
                         range_str = f"{min_cit}-{max_cit}"
                     percentage = (count / len(data)) * 100
                     output.append(f"  {range_str:12} citations: {count:3d} papers ({percentage:5.1f}%)")
-            output.append("")
-        
-        if chemical_list:
-            output.append("CHEMISTRY SCORE ANALYSIS:")
-            output.append(f"  Average: {np.mean(chemical_list):.2f}")
-            output.append(f"  Median: {np.median(chemical_list):.2f}")
-            output.append(f"  Papers with formulas: {sum(1 for w in data if w.get('chemical_formulas'))}")
-            output.append("")
-            
-            # Химическая статистика
-            all_formulas = []
-            all_elements = set()
-            for w in data:
-                all_formulas.extend(w.get('chemical_formulas', []))
-                all_elements.update(w.get('chemical_elements', []))
-            
-            output.append(f"  Total chemical formulas: {len(all_formulas)}")
-            output.append(f"  Unique chemical formulas: {len(set(all_formulas))}")
-            output.append(f"  Unique elements: {len(all_elements)}")
-            
-            if all_formulas:
-                formula_counts = Counter(all_formulas)
-                output.append("  Most common formulas:")
-                for formula, count in formula_counts.most_common(10):
-                    output.append(f"    {formula:20}: {count:3d} papers")
             output.append("")
         
         if relevance_list:
@@ -3303,31 +2572,29 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
         output.append("=" * 80)
         output.append("")
         
-        # Сортируем по релевантности, затем по химическому score
+        # Сортируем по релевантности, затем по годам (новые первыми)
         sorted_data = sorted(data, key=lambda x: (-x.get('relevance_score', 0), 
-                                                  -x.get('chemical_score', 0)))
+                                                  -x.get('publication_year', 0)))
         
-        output.append("Highest Relevance & Chemistry Score:")
+        output.append("Highest Relevance & Most Recent:")
         for i, work in enumerate(sorted_data[:5], 1):
             title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
             output.append(f"  {i}. {title}")
             output.append(f"     Year: {work.get('publication_year', 'N/A')}, "
                          f"Citations: {work.get('cited_by_count', 0)}, "
-                         f"Score: {work.get('relevance_score', 0)}/10, "
-                         f"Chemistry: {work.get('chemical_score', 0):.1f}")
+                         f"Score: {work.get('relevance_score', 0)}/10")
         
         output.append("")
-        output.append("Best Chemistry Matches:")
-        # Берем статьи с ненулевыми химическими формулами
-        chemistry_papers = [w for w in data if w.get('chemical_formulas')]
-        if chemistry_papers:
-            best_chemistry = sorted(chemistry_papers, key=lambda x: -x.get('chemical_score', 0))
-            for i, work in enumerate(best_chemistry[:3], 1):
+        output.append("Most Cited (among under-cited):")
+        # Берем статьи с ненулевыми цитированиями
+        cited_papers = [w for w in data if w.get('cited_by_count', 0) > 0]
+        if cited_papers:
+            most_cited = sorted(cited_papers, key=lambda x: -x.get('cited_by_count', 0))
+            for i, work in enumerate(most_cited[:3], 1):
                 title = work.get('title', '')[:70] + "..." if len(work.get('title', '')) > 70 else work.get('title', '')
-                formulas = ', '.join(work.get('chemical_formulas', [])[:2])
                 output.append(f"  {i}. {title}")
-                output.append(f"     Formulas: {formulas}, "
-                             f"Chemistry Score: {work.get('chemical_score', 0):.1f}")
+                output.append(f"     Citations: {work.get('cited_by_count', 0)}, "
+                             f"Year: {work.get('publication_year', 'N/A')}")
         
         output.append("")
         output.append("Newest Publications:")
@@ -3346,28 +2613,24 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
     
     conclusions = [
         f"This analysis identified {len(data)} under-cited papers in '{topic_name}'.",
-        f"Chemistry-aware analysis enhanced relevance scoring for {sum(1 for w in data if w.get('chemical_formulas'))} papers.",
         "",
         "KEY INSIGHTS:",
-        "• Papers with chemical formulas receive enhanced relevance scores",
+        "• These papers may represent emerging research trends",
         "• Low citation counts don't necessarily indicate low quality",
-        "• Chemical similarity enhances cross-disciplinary discovery",
         "• Consider these for literature reviews and gap analysis",
         "• They may contain novel methodologies or cross-disciplinary insights",
         "",
         "RECOMMENDED ACTIONS:",
-        "1. Review high-chemistry papers for material similarity",
+        "1. Review high-relevance papers for potential citations",
         "2. Use as starting points for systematic reviews",
         "3. Identify research gaps and opportunities",
-        "4. Track emerging chemical compounds in this field",
-        "5. Leverage chemical formula matching for precision recommendations",
+        "4. Track emerging authors in this field",
         "",
         "REPORT METADATA:",
-        f"• Generated by: CTA Article Recommender Pro with Chemistry Analysis",
+        f"• Generated by: CTA Article Recommender Pro",
         f"• Report ID: {hashlib.md5(str(datetime.now()).encode()).hexdigest()[:12].upper()}",
         f"• Data source: OpenAlex API",
         f"• Analysis date: {current_date}",
-        f"• Chemistry analysis: Enabled with hybrid scoring",
         "",
         "© CTA - Chemical Technology Acta | https://chimicatechnoacta.ru",
         "This report is for research purposes only.",
@@ -3396,7 +2659,7 @@ def create_progress_bar(current_step: int, total_steps: int):
         <span class="{'active' if current_step >= 1 else ''}">📥 Data Input</span>
         <span class="{'active' if current_step >= 2 else ''}">🔍 Analysis</span>
         <span class="{'active' if current_step >= 3 else ''}">🎯 Topic Selection</span>
-        <span class="{'active' if current_step >= 4 else ''}">⚗️ Chemistry Results</span>
+        <span class="{'active' if current_step >= 4 else ''}">📊 Results</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -3410,8 +2673,6 @@ def create_back_button():
                     del st.session_state['relevant_works']
                 if 'top_keywords' in st.session_state:
                     del st.session_state['top_keywords']
-                if 'chemical_stats' in st.session_state:
-                    del st.session_state['chemical_stats']
             
             st.session_state.current_step -= 1
             st.rerun()
@@ -3426,9 +2687,8 @@ def create_metric_card_compact(title: str, value, icon: str = "📊"):
     """, unsafe_allow_html=True)
 
 def create_result_card_compact(work: dict, index: int):
-    """Создает компактную карточку результата с химической информацией"""
+    """Создает компактную карточку результата"""
     citation_count = work.get('cited_by_count', 0)
-    chemical_score = work.get('chemical_score', 0)
     
     # Определяем цвет баджа цитирования
     if citation_count == 0:
@@ -3444,32 +2704,12 @@ def create_result_card_compact(work: dict, index: int):
         badge_color = "#f44336"
         badge_text = f"{citation_count} citations"
     
-    # Определяем цвет баджа химического score
-    if chemical_score >= 3:
-        chem_color = "#8E44AD"
-        chem_text = f"⚗️ {chemical_score:.1f}"
-    elif chemical_score >= 1:
-        chem_color = "#3498DB"
-        chem_text = f"⚗️ {chemical_score:.1f}"
-    else:
-        chem_color = "#95A5A6"
-        chem_text = f"⚗️ {chemical_score:.1f}"
-    
     oa_badge = '🔓' if work.get('is_oa') else '🔒'
     doi_url = work.get('doi_url', '')
-    title_text = work.get('title', 'No title')
+    title = work.get('title', 'No title')
     authors = ', '.join(work.get('authors', [])[:2])
     if len(work.get('authors', [])) > 2:
         authors += ' et al.'
-    
-    # Химические формулы (первые 2)
-    chemical_formulas = work.get('chemical_formulas', [])
-    chem_formulas_text = ''
-    if chemical_formulas:
-        formulas_display = ', '.join(chemical_formulas[:2])
-        if len(chemical_formulas) > 2:
-            formulas_display += f' +{len(chemical_formulas)-2}'
-        chem_formulas_text = f'<div style="color: #8E44AD; font-size: 0.8rem; margin: 3px 0;">🧪 {formulas_display}</div>'
     
     st.markdown(f"""
     <div class="result-card">
@@ -3479,17 +2719,13 @@ def create_result_card_compact(work: dict, index: int):
                 <span style="background: {badge_color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">
                     {badge_text}
                 </span>
-                <span style="background: {chem_color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 5px;">
-                    {chem_text}
-                </span>
                 <span style="background: #e3f2fd; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 5px;">
                     Score: {work.get('relevance_score', 0)}
                 </span>
             </div>
             <span style="color: #666; font-size: 0.8rem;">{work.get('publication_year', '')}</span>
         </div>
-        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title_text}</div>
-        {chem_formulas_text}
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title}</div>
         <div style="color: #555; font-size: 0.85rem; margin-bottom: 5px;">👤 {authors}</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
             <span>{oa_badge} {work.get('journal_name', '')[:30]}</span>
@@ -3628,28 +2864,16 @@ def create_topic_selection_ui():
                 st.session_state.selected_ranges = citation_ranges
                 st.info(f"Selected: {selected_option}")
         
-        # Информация о химическом анализе
-        st.markdown("---")
-        st.markdown("""
-        <div class="info-message">
-            <strong>⚗️ Chemistry-Aware Analysis</strong><br>
-            The analysis now includes chemical formula detection and similarity scoring.
-            Papers with chemical formulas will receive enhanced relevance scores.
-        </div>
-        """, unsafe_allow_html=True)
-        
         # Кнопка запуска анализа
         st.markdown("---")
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            if st.button("⚗️ Start Advanced Analysis", type="primary", use_container_width=True, key="start_analysis"):
+            if st.button("🔍 Start Deep Analysis", type="primary", use_container_width=True, key="start_analysis"):
                 # Сбрасываем кэш предыдущих результатов
                 if 'relevant_works' in st.session_state:
                     del st.session_state['relevant_works']
                 if 'top_keywords' in st.session_state:
                     del st.session_state['top_keywords']
-                if 'chemical_stats' in st.session_state:
-                    del st.session_state['chemical_stats']
                 
                 st.session_state.current_step = 4
                 st.rerun()
@@ -3744,32 +2968,12 @@ def step_analysis():
     # Анализ ключевых слов
     keyword_counter = analyze_keywords_parallel(titles)
     
-    # Анализ химических формул
-    chemical_analyzer = ChemicalFormulaAnalyzer()
-    chemical_stats = {
-        'total_formulas': 0,
-        'unique_elements': set(),
-        'papers_with_formulas': 0
-    }
-    
-    for work in works_data:
-        title = work.get('title', '')
-        if title:
-            formulas = chemical_analyzer.extract_chemical_entities(title)
-            if formulas:
-                chemical_stats['total_formulas'] += len(formulas)
-                chemical_stats['papers_with_formulas'] += 1
-                for formula in formulas:
-                    elements = formula.get('elements', [])
-                    chemical_stats['unique_elements'].update(elements)
-    
     # Сохранение результатов
     st.session_state.works_data = works_data
     st.session_state.topic_counter = topic_counter
     st.session_state.keyword_counter = keyword_counter
     st.session_state.successful = successful
     st.session_state.failed = failed
-    st.session_state.chemical_stats = chemical_stats
     
     # Результаты анализа
     st.markdown(f"""
@@ -3777,23 +2981,20 @@ def step_analysis():
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <strong>✅ Analysis Complete!</strong><br>
-                Successfully processed {successful} papers<br>
-                Found chemical formulas in {chemical_stats['papers_with_formulas']} papers
+                Successfully processed {successful} papers
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
     # Статистика
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
         create_metric_card_compact("Successful", successful, "✅")
     with col2:
         create_metric_card_compact("Failed", failed, "❌")
     with col3:
         create_metric_card_compact("Topics", len(topic_counter), "🏷️")
-    with col4:
-        create_metric_card_compact("Chemical", f"{chemical_stats['papers_with_formulas']}", "⚗️")
     
     # Кнопка продолжения
     st.markdown("---")
@@ -3810,24 +3011,13 @@ def step_topic_selection():
     st.markdown("""
     <div class="step-card">
         <h3 style="margin: 0; font-size: 1.3rem;">🎯 Step 3: Select Research Topic</h3>
-        <p style="margin: 5px 0; font-size: 0.9rem;">Choose a topic for advanced chemistry-aware analysis.</p>
+        <p style="margin: 5px 0; font-size: 0.9rem;">Choose a topic for deep analysis of fresh papers.</p>
     </div>
     """, unsafe_allow_html=True)
     
     if not st.session_state.works_data:
         st.error("❌ No data available. Please start from Step 1.")
         return
-    
-    # Показываем химическую статистику
-    if 'chemical_stats' in st.session_state:
-        chem_stats = st.session_state.chemical_stats
-        st.markdown(f"""
-        <div class="info-message">
-            <strong>⚗️ Chemical Analysis Summary</strong><br>
-            Found {chem_stats['total_formulas']} chemical formulas in {chem_stats['papers_with_formulas']} papers<br>
-            Unique elements: {len(chem_stats['unique_elements'])}
-        </div>
-        """, unsafe_allow_html=True)
     
     create_topic_selection_ui()
 
@@ -3837,8 +3027,8 @@ def step_results():
     
     st.markdown("""
     <div class="step-card">
-        <h3 style="margin: 0; font-size: 1.3rem;">⚗️ Step 4: Chemistry-Aware Results</h3>
-        <p style="margin: 5px 0; font-size: 0.9rem;">Fresh papers with enhanced chemical analysis.</p>
+        <h3 style="margin: 0; font-size: 1.3rem;">📊 Step 4: Analysis Results</h3>
+        <p style="margin: 5px 0; font-size: 0.9rem;">Fresh papers in your research area.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -3860,14 +3050,14 @@ def step_results():
     
     # Анализ работ по теме (только если еще не анализировали или фильтры изменились)
     if 'relevant_works' not in st.session_state:
-        with st.spinner("Searching for fresh papers with advanced chemistry-aware algorithm..."):
+        with st.spinner("Searching for fresh papers with enhanced algorithm..."):
             # Получаем топ-10 ключевых слов
             top_keywords = [kw for kw, _ in st.session_state.keyword_counter.most_common(10)]
             
             # Сохраняем ключевые слова в сессии
             st.session_state.top_keywords = top_keywords
             
-            # Выполняем улучшенный анализ с химией
+            # Выполняем улучшенный анализ
             relevant_works = analyze_works_for_topic(
                 st.session_state.selected_topic_id,
                 top_keywords,
@@ -3896,26 +3086,15 @@ def step_results():
         oa_count = sum(1 for w in relevant_works if w.get('is_oa'))
         create_metric_card_compact("Open Access", oa_count, "🔓")
     with col4:
-        chem_papers = sum(1 for w in relevant_works if w.get('chemical_formulas'))
-        create_metric_card_compact("With Chemistry", chem_papers, "⚗️")
-    
-    # Химическая статистика (если есть)
-    if 'chemical_stats' in st.session_state and relevant_works:
-        chem_stats = st.session_state.chemical_stats
-        st.markdown(f"""
-        <div class="info-message">
-            <strong>⚗️ Chemical Analysis Results</strong><br>
-            Papers with chemical formulas: {chem_papers} ({chem_papers/len(relevant_works)*100:.1f}%)<br>
-            Average chemistry score: {np.mean([w.get('chemical_score', 0) for w in relevant_works]):.2f}
-        </div>
-        """, unsafe_allow_html=True)
+        current_year = datetime.now().year
+        recent_count = sum(1 for w in relevant_works if w.get('publication_year', 0) >= current_year - 2)
+        create_metric_card_compact("Recent (≤2y)", recent_count, "🕒")
     
     # Показываем активные фильтры
     st.markdown(f"""
     <div style="margin: 10px 0; font-size: 0.85rem; color: #666;">
         <strong>Active filters:</strong> Years: {', '.join(map(str, selected_years))} | 
-        Citation ranges: {format_citation_ranges(selected_ranges)} |
-        Chemistry analysis: <span style="color: #8E44AD; font-weight: bold;">Enabled</span>
+        Citation ranges: {format_citation_ranges(selected_ranges)}
     </div>
     """, unsafe_allow_html=True)
     
@@ -3933,31 +3112,24 @@ def step_results():
         """, unsafe_allow_html=True)
     else:
         # Результаты в виде карточек
-        st.markdown("<h4>⚗️ Recommended Papers (Chemistry-Enhanced):</h4>", unsafe_allow_html=True)
+        st.markdown("<h4>🎯 Recommended Papers:</h4>", unsafe_allow_html=True)
         
         for idx, work in enumerate(relevant_works[:10], 1):
             create_result_card_compact(work, idx)
         
         # Таблица для детального просмотра
-        st.markdown("<h4>📋 Detailed View with Chemistry Scores:</h4>", unsafe_allow_html=True)
+        st.markdown("<h4>📋 Detailed View:</h4>", unsafe_allow_html=True)
         
         display_data = []
         for i, work in enumerate(relevant_works, 1):
             doi_url = work.get('doi_url', '')
             title = work.get('title', '')
-            chemical_formulas = work.get('chemical_formulas', [])
-            
-            formulas_display = ', '.join(chemical_formulas[:2]) if chemical_formulas else 'None'
-            if len(chemical_formulas) > 2:
-                formulas_display += f' +{len(chemical_formulas)-2}'
             
             display_data.append({
                 '#': i,
                 'Title': title[:60] + '...' if len(title) > 60 else title,
                 'Citations': work.get('cited_by_count', 0),
                 'Relevance': work.get('relevance_score', 0),
-                'Chemistry': work.get('chemical_score', 0),
-                'Formulas': formulas_display,
                 'Year': work.get('publication_year', ''),
                 'Journal': work.get('journal_name', '')[:20],
                 'DOI': doi_url if doi_url else 'N/A',  # Исправлено: убираем markdown
@@ -3984,13 +3156,6 @@ def step_results():
                     format="%d",
                     min_value=1,
                     max_value=10
-                ),
-                "Chemistry": st.column_config.ProgressColumn(
-                    "Chemistry",
-                    help="Chemistry score (higher = more chemical formulas)",
-                    format="%.1f",
-                    min_value=0,
-                    max_value=5
                 )
             }
         )
@@ -4005,7 +3170,7 @@ def step_results():
             st.download_button(
                 label="📊 CSV",
                 data=csv,
-                file_name=f"chemistry_aware_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.csv",
+                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
@@ -4015,7 +3180,7 @@ def step_results():
             st.download_button(
                 label="📈 Excel",
                 data=excel_data,
-                file_name=f"chemistry_aware_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.xlsx",
+                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
@@ -4025,7 +3190,7 @@ def step_results():
             st.download_button(
                 label="📝 TXT",
                 data=txt_data,
-                file_name=f"chemistry_aware_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.txt",
+                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.txt",
                 mime="text/plain",
                 use_container_width=True
             )
@@ -4035,7 +3200,7 @@ def step_results():
             st.download_button(
                 label="📄 PDF",
                 data=pdf_data,
-                file_name=f"chemistry_aware_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.pdf",
+                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
@@ -4048,7 +3213,7 @@ def step_results():
                 for key in ['relevant_works', 'selected_topic', 'selected_topic_id', 
                           'selected_years', 'selected_ranges', 'top_keywords',
                           'works_data', 'topic_counter', 'keyword_counter',
-                          'successful', 'failed', 'dois', 'chemical_stats']:
+                          'successful', 'failed', 'dois']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.session_state.current_step = 1
@@ -4067,9 +3232,9 @@ def main():
     
     # Заголовок (компактный)
     st.markdown("""
-    <h1 class="main-header">⚗️ CTA Article Recommender Pro</h1>
+    <h1 class="main-header">🔬 CTA Article Recommender Pro</h1>
     <p style="font-size: 1rem; color: #666; margin-bottom: 1.5rem;">
-    Advanced chemistry-aware paper discovery with AI-powered analysis
+    Discover fresh papers using AI-powered analysis
     </p>
     """, unsafe_allow_html=True)
     
@@ -4094,10 +3259,8 @@ def main():
     st.markdown("""
     <div style="text-align: center; color: #888; font-size: 0.8rem; margin-top: 1rem;">
         <p>© CTA, https://chimicatechnoacta.ru / developed by daM©</p>
-        <p>Advanced Chemistry-Aware Analysis Engine v1.0</p>
     </div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
-
