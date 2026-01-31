@@ -1013,6 +1013,529 @@ def enrich_work_data(work: dict) -> dict:
     
     return enriched
 
+# ============================================================================
+# НОВЫЙ КЛАСС ДЛЯ УЛУЧШЕННОГО АНАЛИЗА КЛЮЧЕВЫХ СЛОВ
+# ============================================================================
+
+class TitleKeywordsAnalyzer:
+    def __init__(self):
+        # Initialize stopwords and lemmatizer
+        try:
+            import nltk
+            from nltk.corpus import stopwords
+            from nltk.stem import WordNetLemmatizer
+            
+            # Load necessary NLTK resources
+            try:
+                nltk.download('wordnet', quiet=True)
+                nltk.download('omw-eng', quiet=True)
+                nltk.download('stopwords', quiet=True)
+                nltk.download('punkt', quiet=True)
+            except:
+                pass
+            
+            self.stop_words = set(stopwords.words('english'))
+            self.lemmatizer = WordNetLemmatizer()
+            
+            # Правила для специальных случаев
+            self.irregular_plurals = {
+                'analyses': 'analysis', 'axes': 'axis', 'bases': 'basis',
+                'crises': 'crisis', 'criteria': 'criterion', 'data': 'datum',
+                'diagnoses': 'diagnosis', 'ellipses': 'ellipsis', 'emphases': 'emphasis',
+                'genera': 'genus', 'hypotheses': 'hypothesis', 'indices': 'index',
+                'media': 'medium', 'memoranda': 'memorandum', 'parentheses': 'parenthesis',
+                'phenomena': 'phenomenon', 'prognoses': 'prognosis', 'radii': 'radius',
+                'stimuli': 'stimulus', 'syntheses': 'synthesis', 'theses': 'thesis',
+                'vertebrae': 'vertebra', 'oxides': 'oxide', 'composites': 'composite',
+                'applications': 'application', 'materials': 'material', 'methods': 'method',
+                'systems': 'system', 'techniques': 'technique', 'properties': 'property',
+                'structures': 'structure', 'devices': 'device', 'processes': 'process',
+                'mechanisms': 'mechanism', 'models': 'model', 'approaches': 'approach',
+                'frameworks': 'framework', 'strategies': 'strategy', 'solutions': 'solution',
+                'technologies': 'technology', 'materials': 'material', 'nanoparticles': 'nanoparticle',
+                'nanostructures': 'nanostructure', 'polymers': 'polymer', 'composites': 'composite',
+                'ceramics': 'ceramic', 'alloys': 'alloy', 'coatings': 'coating', 'films': 'film',
+                'layers': 'layer', 'interfaces': 'interface', 'surfaces': 'surface',
+                'catalysts': 'catalyst', 'sensors': 'sensor', 'actuators': 'actuator',
+                'transistors': 'transistor', 'diodes': 'diode', 'circuits': 'circuit',
+                'networks': 'network', 'algorithms': 'algorithm', 'protocols': 'protocol',
+                'databases': 'database', 'architectures': 'architecture', 'platforms': 'platform',
+                'environments': 'environment', 'simulations': 'simulation', 'experiments': 'experiment',
+                'measurements': 'measurement', 'observations': 'observation', 'analyses': 'analysis',
+                'evaluations': 'evaluation', 'assessments': 'assessment', 'comparisons': 'comparison',
+                'classifications': 'classification', 'predictions': 'prediction', 'optimizations': 'optimization',
+                'characterizations': 'characterization', 'syntheses': 'synthesis', 'fabrications': 'fabrication',
+                'preparations': 'preparation', 'treatments': 'treatment', 'modifications': 'modification',
+                'enhancements': 'enhancement', 'improvements': 'improvement', 'developments': 'development',
+                'innovations': 'innovation', 'discoveries': 'discovery', 'inventions': 'invention',
+                'applications': 'application', 'implementations': 'implementation', 'utilizations': 'utilization',
+                'integrations': 'integration', 'combinations': 'combination', 'interactions': 'interaction',
+                'relationships': 'relationship', 'dependencies': 'dependency', 'correlations': 'correlation',
+                'associations': 'association', 'connections': 'connection', 'communications': 'communication',
+                'collaborations': 'collaboration', 'cooperations': 'cooperation', 'competitions': 'competition',
+                'conflicts': 'conflict', 'challenges': 'challenge', 'problems': 'problem', 'solutions': 'solution',
+                'alternatives': 'alternative', 'options': 'option', 'variants': 'variant', 'versions': 'version',
+                'editions': 'edition', 'releases': 'release', 'updates': 'update', 'revisions': 'revision',
+                'modifications': 'modification', 'adaptations': 'adaptation', 'customizations': 'customization',
+                'personalizations': 'personalization', 'localizations': 'localization', 'internationalizations': 'internationalization',
+                'standardizations': 'standardization', 'normalizations': 'normalization', 'optimizations': 'optimization',
+                'maximizations': 'maximization', 'minimizations': 'minimization', 'reductions': 'reduction',
+                'increases': 'increase', 'improvements': 'improvement', 'enhancements': 'enhancement',
+                'advancements': 'advancement', 'progresses': 'progress', 'developments': 'development',
+                'evolutions': 'evolution', 'revolutions': 'revolution', 'transformations': 'transformation',
+                'changes': 'change', 'variations': 'variation', 'fluctuations': 'fluctuation', 'oscillations': 'oscillation',
+                'vibrations': 'vibration', 'rotations': 'rotation', 'translations': 'translation', 'movements': 'movement',
+                'motions': 'motion', 'dynamics': 'dynamic', 'kinematics': 'kinematic', 'mechanics': 'mechanic',
+                'thermodynamics': 'thermodynamic', 'electrodynamics': 'electrodynamic', 'hydrodynamics': 'hydrodynamic',
+                'aerodynamics': 'aerodynamic', 'biomechanics': 'biomechanic', 'geomechanics': 'geomechanic',
+                'chemomechanics': 'chemomechanic', 'tribology': 'tribology', 'rheology': 'rheology',
+                'viscoelasticity': 'viscoelastic', 'plasticity': 'plastic', 'elasticity': 'elastic',
+                'viscosity': 'viscous', 'conductivity': 'conductive', 'resistivity': 'resistive',
+                'permeability': 'permeable', 'porosity': 'porous', 'density': 'dense', 'hardness': 'hard',
+                'stiffness': 'stiff', 'strength': 'strong', 'toughness': 'tough', 'brittleness': 'brittle',
+                'ductility': 'ductile', 'malleability': 'malleable', 'flexibility': 'flexible', 'rigidity': 'rigid',
+                'stability': 'stable', 'instability': 'unstable', 'reliability': 'reliable', 'durability': 'durable',
+                'sustainability': 'sustainable', 'efficiency': 'efficient', 'effectiveness': 'effective',
+                'performance': 'perform', 'productivity': 'productive', 'quality': 'qualitative',
+                'quantity': 'quantitative', 'accuracy': 'accurate', 'precision': 'precise', 'reliability': 'reliable',
+                'validity': 'valid', 'reproducibility': 'reproducible', 'repeatability': 'repeatable',
+                'consistency': 'consistent', 'homogeneity': 'homogeneous', 'heterogeneity': 'heterogeneous',
+                'isotropy': 'isotropic', 'anisotropy': 'anisotropic', 'symmetry': 'symmetric',
+                'asymmetry': 'asymmetric', 'regularity': 'regular', 'irregularity': 'irregular',
+                'periodicity': 'periodic', 'aperiodicity': 'aperiodic', 'randomness': 'random',
+                'determinism': 'deterministic', 'stochasticity': 'stochastic', 'probability': 'probable',
+                'statistics': 'statistic', 'distributions': 'distribution', 'functions': 'function',
+                'equations': 'equation', 'formulas': 'formula', 'theorems': 'theorem', 'lemmas': 'lemma',
+                'corollaries': 'corollary', 'proofs': 'proof', 'demonstrations': 'demonstration',
+                'verifications': 'verification', 'validations': 'validation', 'confirmations': 'confirmation',
+                'tests': 'test', 'experiments': 'experiment', 'trials': 'trial', 'studies': 'study',
+                'investigations': 'investigation', 'examinations': 'examination', 'inspections': 'inspection',
+                'audits': 'audit', 'reviews': 'review', 'surveys': 'survey', 'polls': 'poll',
+                'questionnaires': 'questionnaire', 'interviews': 'interview', 'observations': 'observation',
+                'measurements': 'measurement', 'calculations': 'calculation', 'computations': 'computation',
+                'simulations': 'simulation', 'modelings': 'modeling', 'analyses': 'analysis', 'syntheses': 'synthesis',
+                'evaluations': 'evaluation', 'assessments': 'assessment', 'appraisals': 'appraisal',
+                'estimations': 'estimation', 'approximations': 'approximation', 'predictions': 'prediction',
+                'forecasts': 'forecast', 'projections': 'projection', 'extrapolations': 'extrapolation',
+                'interpolations': 'interpolation', 'regressions': 'regression', 'correlations': 'correlation',
+                'classifications': 'classification', 'clusters': 'cluster', 'segments': 'segment', 'groups': 'group',
+                'categories': 'category', 'types': 'type', 'classes': 'class', 'kinds': 'kind', 'sorts': 'sort',
+                'varieties': 'variety', 'forms': 'form', 'shapes': 'shape', 'sizes': 'size', 'dimensions': 'dimension',
+                'volumes': 'volume', 'areas': 'area', 'lengths': 'length', 'widths': 'width', 'heights': 'height',
+                'depths': 'depth', 'thicknesses': 'thickness', 'diameters': 'diameter', 'radii': 'radius',
+                'circumferences': 'circumference', 'perimeters': 'perimeter', 'surfaces': 'surface',
+                'interfaces': 'interface', 'boundaries': 'boundary', 'edges': 'edge', 'corners': 'corner',
+                'vertices': 'vertex', 'nodes': 'node', 'points': 'point', 'lines': 'line', 'curves': 'curve',
+                'planes': 'plane', 'spaces': 'space', 'regions': 'region', 'zones': 'zone', 'sectors': 'sector',
+                'segments': 'segment', 'parts': 'part', 'components': 'component', 'elements': 'element',
+                'units': 'unit', 'modules': 'module', 'blocks': 'block', 'pieces': 'piece', 'fragments': 'fragment',
+                'particles': 'particle', 'atoms': 'atom', 'molecules': 'molecule', 'ions': 'ion', 'electrons': 'electron',
+                'protons': 'proton', 'neutrons': 'neutron', 'photons': 'photon', 'quarks': 'quark', 'leptons': 'lepton',
+                'bosons': 'boson', 'fermions': 'fermion', 'hadrons': 'hadron', 'mesons': 'meson', 'baryons': 'baryon',
+                'nuclei': 'nucleus', 'isotopes': 'isotope', 'elements': 'element', 'compounds': 'compound',
+                'mixtures': 'mixture', 'solutions': 'solution', 'suspensions': 'suspension', 'colloids': 'colloid',
+                'emulsions': 'emulsion', 'foams': 'foam', 'gels': 'gel', 'solids': 'solid', 'liquids': 'liquid',
+                'gases': 'gas', 'plasmas': 'plasma', 'crystals': 'crystal', 'amorphous': 'amorphous', 'polymers': 'polymer',
+                'monomers': 'monomer', 'oligomers': 'oligomer', 'copolymers': 'copolymer', 'homopolymers': 'homopolymer',
+                'biopolymers': 'biopolymer', 'proteins': 'protein', 'enzymes': 'enzyme', 'antibodies': 'antibody',
+                'antigens': 'antigen', 'vaccines': 'vaccine', 'drugs': 'drug', 'medicines': 'medicine',
+                'therapies': 'therapy', 'treatments': 'treatment', 'diagnoses': 'diagnosis', 'prognoses': 'prognosis',
+                'symptoms': 'symptom', 'diseases': 'disease', 'disorders': 'disorder', 'conditions': 'condition',
+                'syndromes': 'syndrome', 'infections': 'infection', 'inflammations': 'inflammation', 'tumors': 'tumor',
+                'cancers': 'cancer', 'metastases': 'metastasis', 'remissions': 'remission', 'recurrences': 'recurrence',
+                'survivals': 'survival', 'mortality': 'mortal', 'morbidity': 'morbid', 'epidemiology': 'epidemiologic',
+                'pathology': 'pathologic', 'physiology': 'physiologic', 'anatomy': 'anatomic', 'histology': 'histologic',
+                'cytology': 'cytologic', 'genetics': 'genetic', 'genomics': 'genomic', 'proteomics': 'proteomic',
+                'metabolomics': 'metabolomic', 'transcriptomics': 'transcriptomic', 'epigenetics': 'epigenetic',
+                'bioinformatics': 'bioinformatic', 'biotechnology': 'biotechnologic', 'nanotechnology': 'nanotechnologic',
+                'microtechnology': 'microtechnologic', 'microfabrication': 'microfabricate', 'nanofabrication': 'nanofabricate',
+                'lithography': 'lithographic', 'photolithography': 'photolithographic', 'electron-beam': 'electron-beam',
+                'ion-beam': 'ion-beam', 'focused-ion-beam': 'focused-ion-beam', 'atomic-force': 'atomic-force',
+                'scanning-tunneling': 'scanning-tunneling', 'transmission-electron': 'transmission-electron',
+                'scanning-electron': 'scanning-electron', 'optical': 'optical', 'confocal': 'confocal',
+                'fluorescence': 'fluorescent', 'phosphorescence': 'phosphorescent', 'luminescence': 'luminescent',
+                'chemiluminescence': 'chemiluminescent', 'bioluminescence': 'bioluminescent', 'electroluminescence': 'electroluminescent',
+                'photoluminescence': 'photoluminescent', 'cathodoluminescence': 'cathodoluminescent',
+                'thermoluminescence': 'thermoluminescent', 'radioluminescence': 'radioluminescent',
+                'sonoluminescence': 'sonoluminescent', 'triboluminescence': 'triboluminescent',
+                'crystalloluminescence': 'crystalloluminescent', 'electroluminescence': 'electroluminescent',
+                'magnetoluminescence': 'magnetoluminescent',
+            }
+            
+            # Суффиксы, которые нужно преобразовать
+            self.suffix_replacements = {
+                'ies': 'y',
+                'es': '',
+                's': '',
+                'ed': '',
+                'ing': '',
+                'ly': '',
+                'ally': 'al',
+                'ically': 'ic',
+                'ization': 'ize',
+                'isation': 'ise',
+                'ment': '',
+                'ness': '',
+                'ity': '',
+                'ty': '',
+                'ic': '',
+                'ical': '',
+                'ive': '',
+                'ous': '',
+                'ful': '',
+                'less': '',
+                'est': '',
+                'er': '',
+                'ors': 'or',
+                'ors': 'or',
+                'ings': 'ing',
+                'ments': 'ment',
+            }
+            
+        except:
+            # Fallback if nltk not available
+            self.stop_words = {'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+            self.lemmatizer = None
+            self.irregular_plurals = {}
+            self.suffix_replacements = {}
+        
+        # Scientific stopwords (уже лемматизированные)
+        self.scientific_stopwords = {
+            'activate', 'adapt', 'advance', 'analyze', 'apply',
+            'approach', 'architect', 'artificial', 'assess',
+            'base', 'behave', 'capacity', 'characterize',
+            'coat', 'compare', 'compute', 'composite',
+            'control', 'cycle', 'damage', 'data', 'density', 'design',
+            'detect', 'develop', 'device', 'diagnose', 'discover',
+            'dynamic', 'economic', 'effect', 'efficacy',
+            'efficient', 'energy', 'engineer', 'enhance', 'environment',
+            'evaluate', 'experiment', 'explore', 'factor', 'fail',
+            'fabricate', 'field', 'film', 'flow', 'framework', 'frequency',
+            'function', 'grow', 'high', 'impact', 'improve',
+            'induce', 'influence', 'inform', 'innovate', 'intelligent',
+            'interact', 'interface', 'investigate', 'know',
+            'layer', 'learn', 'magnetic', 'manage', 'material',
+            'measure', 'mechanism', 'medical',
+            'method', 'model', 'modify', 'modulate',
+            'molecule', 'monitor', 'motion', 'nanoparticle',
+            'nanostructure', 'network', 'neural', 'new', 'nonlinear',
+            'novel', 'numerical', 'optical', 'optimize', 'pattern', 'perform',
+            'phenomenon', 'potential', 'power', 'predict', 'prepare', 'process',
+            'produce', 'progress', 'property', 'quality', 'regulate', 'relate',
+            'reliable', 'remote', 'repair', 'research', 'resist', 'respond',
+            'review', 'risk', 'role', 'safe', 'sample', 'scale', 'screen',
+            'separate', 'signal', 'simulate', 'specific', 'stable', 'state',
+            'store', 'strain', 'strength', 'stress', 'structure', 'study',
+            'sustain', 'synergy', 'synthesize', 'system', 'target',
+            'technique', 'technology', 'test', 'theoretical', 'therapy',
+            'thermal', 'tissue', 'tolerate', 'toxic', 'transform', 'transition',
+            'transmit', 'transport', 'type', 'understand', 'use', 'validate',
+            'value', 'vary', 'virtual', 'waste', 'wave',
+            'application', 'approach', 'assessment', 'behavior', 'capability',
+            'characterization', 'comparison', 'concept', 'condition', 'configuration',
+            'construction', 'contribution', 'demonstration', 'description', 'detection',
+            'determination', 'development', 'effectiveness', 'efficiency', 'evaluation',
+            'examination', 'experimentation', 'explanation', 'exploration', 'fabrication',
+            'formation', 'implementation', 'improvement', 'indication', 'investigation',
+            'management', 'manufacture', 'measurement', 'modification', 'observation',
+            'operation', 'optimization', 'performance', 'preparation', 'presentation',
+            'production', 'realization', 'recognition', 'regulation', 'representation',
+            'simulation', 'solution', 'specification', 'synthesis', 'transformation',
+            'treatment', 'utilization', 'validation', 'verification'
+        }
+    
+    def _get_lemma(self, word: str) -> str:
+        """Get word lemma considering special rules"""
+        if not word or len(word) < 3:
+            return word
+        
+        # Convert to lowercase for processing
+        lower_word = word.lower()
+        
+        # Check irregular plurals FIRST
+        if lower_word in self.irregular_plurals:
+            return self.irregular_plurals[lower_word]
+        
+        # Check regular plurals
+        # If word ends with 's' or 'es' but not 'ss' or 'us'
+        if lower_word.endswith('s') and not (lower_word.endswith('ss') or lower_word.endswith('us')):
+            # Try to remove 's' or 'es'
+            if lower_word.endswith('es') and len(lower_word) > 2:
+                base_word = lower_word[:-2]
+                # Check that after removing 'es' word not too short
+                if len(base_word) >= 3:
+                    return base_word
+            elif len(lower_word) > 1:
+                base_word = lower_word[:-1]
+                # Check that after removing 's' word not too short
+                if len(base_word) >= 3:
+                    return base_word
+        
+        # Use lemmatizer if available
+        if self.lemmatizer:
+            # Try different parts of speech
+            for pos in ['n', 'v', 'a', 'r']:  # noun, verb, adjective, adverb
+                lemma = self.lemmatizer.lemmatize(lower_word, pos=pos)
+                if lemma != lower_word:
+                    return lemma
+        
+        # Apply suffix rules in reverse order (long to short)
+        sorted_suffixes = sorted(self.suffix_replacements.keys(), key=len, reverse=True)
+        for suffix in sorted_suffixes:
+            if lower_word.endswith(suffix) and len(lower_word) > len(suffix) + 2:
+                replacement = self.suffix_replacements[suffix]
+                base = lower_word[:-len(suffix)] + replacement
+                # Check result not too short
+                if len(base) >= 3:
+                    # Also check base doesn't end with double consonant
+                    if len(base) >= 4 and base[-1] == base[-2]:
+                        base = base[:-1]
+                    return base
+        
+        return lower_word
+    
+    def _get_base_form(self, word: str) -> str:
+        """Get base word form with aggressive lemmatization"""
+        lemma = self._get_lemma(word)
+        
+        # Additional rules for scientific terms
+        if lemma.endswith('isation'):
+            return lemma[:-7] + 'ize'
+        elif lemma.endswith('ization'):
+            return lemma[:-7] + 'ize'
+        elif lemma.endswith('ication'):
+            return lemma[:-7] + 'y'
+        elif lemma.endswith('ation'):
+            return lemma[:-5] + 'e'
+        elif lemma.endswith('ition'):
+            return lemma[:-5] + 'e'
+        elif lemma.endswith('ution'):
+            return lemma[:-5] + 'e'
+        elif lemma.endswith('ment'):
+            return lemma[:-4]
+        elif lemma.endswith('ness'):
+            return lemma[:-4]
+        elif lemma.endswith('ity'):
+            return lemma[:-3] + 'e'
+        elif lemma.endswith('ty'):
+            base = lemma[:-2]
+            if base.endswith('i'):
+                return base[:-1] + 'y'
+            return base
+        elif lemma.endswith('ic'):
+            return lemma[:-2] + 'y'
+        elif lemma.endswith('al'):
+            return lemma[:-2]
+        elif lemma.endswith('ive'):
+            return lemma[:-3] + 'e'
+        elif lemma.endswith('ous'):
+            return lemma[:-3]
+        
+        return lemma
+    
+    def preprocess_content_words(self, text: str) -> List[Dict]:
+        """Clean and normalize content words, return dictionaries with lemmas and forms"""
+        if not text or text in ['Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
+            return []
+
+        text = text.lower()
+        text = re.sub(r'[^a-zA-Z\s-]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        words = text.split()
+        content_words = []
+
+        for word in words:
+            # EXCLUDE word "sub"
+            if word == 'sub':
+                continue
+            if '-' in word:
+                continue
+            if len(word) > 2 and word not in self.stop_words:
+                lemma = self._get_base_form(word)
+                if lemma not in self.scientific_stopwords:
+                    content_words.append({
+                        'original': word,
+                        'lemma': lemma,
+                        'type': 'content'
+                    })
+
+        return content_words
+
+    def extract_compound_words(self, text: str) -> List[Dict]:
+        """Extract hyphenated compound words"""
+        if not text or text in ['Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
+            return []
+
+        text = text.lower()
+        compound_words = re.findall(r'\b[a-z]{2,}-[a-z]{2,}(?:-[a-z]{2,})*\b', text)
+
+        compounds = []
+        for word in compound_words:
+            parts = word.split('-')
+            if not any(part in self.stop_words for part in parts):
+                # For compound words lemmatize each part
+                lemmatized_parts = []
+                for part in parts:
+                    lemma = self._get_base_form(part)
+                    lemmatized_parts.append(lemma)
+                
+                compounds.append({
+                    'original': word,
+                    'lemma': '-'.join(lemmatized_parts),
+                    'type': 'compound'
+                })
+
+        return compounds
+
+    def _are_similar_lemmas(self, lemma1: str, lemma2: str) -> bool:
+        """Check if lemmas are similar (e.g., singular/plural)"""
+        if lemma1 == lemma2:
+            return True
+        
+        # Check if they are forms of the same word
+        # Example: "composite" and "composites"
+        if lemma1.endswith('s') and lemma1[:-1] == lemma2:
+            return True
+        if lemma2.endswith('s') and lemma2[:-1] == lemma1:
+            return True
+        
+        # Check if they are forms with different suffixes
+        # Example: "characterization" and "characterize"
+        common_prefix = self._get_common_prefix(lemma1, lemma2)
+        if len(common_prefix) >= 5:  # If common prefix long enough
+            # Check length difference
+            if abs(len(lemma1) - len(lemma2)) <= 3:
+                return True
+        
+        return False
+    
+    def _get_common_prefix(self, str1: str, str2: str) -> str:
+        """Return common prefix of two strings"""
+        min_length = min(len(str1), len(str2))
+        common_prefix = []
+        
+        for i in range(min_length):
+            if str1[i] == str2[i]:
+                common_prefix.append(str1[i])
+            else:
+                break
+        
+        return ''.join(common_prefix)
+
+class EnhancedKeywordAnalyzer:
+    def __init__(self):
+        self.title_analyzer = TitleKeywordsAnalyzer()
+        
+        # Веса для разных типов слов
+        self.weights = {
+            'content': 1.0,
+            'compound': 1.5,  # Составные слова важнее
+            'scientific': 0.7  # Научные стоп-слова менее важны
+        }
+    
+    def extract_weighted_keywords(self, titles: List[str]) -> Dict[str, float]:
+        """Извлечение ключевых слов с весами"""
+        weighted_counter = Counter()
+        
+        for title in titles:
+            if not title:
+                continue
+                
+            # Извлекаем все типы слов
+            content_words = self.title_analyzer.preprocess_content_words(title)
+            compound_words = self.title_analyzer.extract_compound_words(title)
+            
+            # Учитываем веса
+            for word_info in content_words:
+                lemma = word_info['lemma']
+                if lemma:
+                    weighted_counter[lemma] += self.weights['content']
+            
+            for word_info in compound_words:
+                lemma = word_info['lemma']
+                if lemma:
+                    weighted_counter[lemma] += self.weights['compound']
+        
+        return weighted_counter
+
+def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float], 
+                                 analyzer: TitleKeywordsAnalyzer) -> Tuple[float, List[str]]:
+    """Расчет релевантности с учетом семантической близости"""
+    
+    title = work.get('title', '').lower()
+    abstract = work.get('abstract', '').lower()
+    
+    if not title:
+        return 0.0, []
+    
+    score = 0.0
+    matched_keywords = []
+    
+    # Извлекаем слова из заголовка анализируемой работы
+    title_words = analyzer.preprocess_content_words(title)
+    compound_words = analyzer.extract_compound_words(title)
+    
+    title_lemmas = {w['lemma'] for w in title_words}
+    compound_lemmas = {w['lemma'] for w in compound_words}
+    all_title_lemmas = title_lemmas.union(compound_lemmas)
+    
+    # Проверяем каждое ключевое слово
+    for keyword, weight in keywords.items():
+        keyword_lower = keyword.lower()
+        keyword_base = analyzer._get_base_form(keyword_lower)
+        
+        # Проверяем точное совпадение в заголовке
+        if keyword_lower in title:
+            score += weight * 3.0  # Высокий вес для точного совпадения
+            if keyword not in matched_keywords:
+                matched_keywords.append(keyword)
+        
+        # Проверяем точное совпадение в аннотации
+        elif abstract and keyword_lower in abstract:
+            score += weight * 1.0  # Меньший вес для аннотации
+            if f"{keyword}*" not in matched_keywords:
+                matched_keywords.append(f"{keyword}*")
+        
+        else:
+            # Проверяем лемматизированные формы в заголовке
+            for lemma in all_title_lemmas:
+                if analyzer._are_similar_lemmas(keyword_base, lemma):
+                    score += weight * 2.0  # Средний вес для семантической близости
+                    if f"{keyword}~{lemma}" not in matched_keywords:
+                        matched_keywords.append(f"{keyword}~{lemma}")
+                    break
+    
+    # Дополнительные бонусы
+    compound_words_list = analyzer.extract_compound_words(title)
+    if compound_words_list:
+        score += len(compound_words_list) * 0.5
+    
+    return score, matched_keywords
+
+def passes_filters(work: dict, year_filter: List[int], 
+                   citation_ranges: List[Tuple[int, int]]) -> bool:
+    """Проверяет работу на соответствие фильтрам"""
+    
+    cited_by_count = work.get('cited_by_count', 0)
+    publication_year = work.get('publication_year', 0)
+    
+    # Фильтр по годам
+    if year_filter and publication_year not in year_filter:
+        return False
+    
+    # Фильтр по цитированиям
+    if citation_ranges:
+        in_range = False
+        for min_cit, max_cit in citation_ranges:
+            if min_cit <= cited_by_count <= max_cit:
+                in_range = True
+                break
+        if not in_range:
+            return False
+    
+    return True
+
 def analyze_works_for_topic(
     topic_id: str,
     keywords: List[str],
@@ -1024,6 +1547,7 @@ def analyze_works_for_topic(
 ) -> List[dict]:
     """
     Analyze works for a specific topic with filtering of input DOIs and duplicate titles.
+    ИСПОЛЬЗУЕТ УЛУЧШЕННЫЙ АЛГОРИТМ С СЕМАНТИЧЕСКОЙ БЛИЗОСТЬЮ.
     
     Args:
         topic_id: OpenAlex topic ID
@@ -1063,10 +1587,32 @@ def analyze_works_for_topic(
             input_dois.add(clean_doi)
         logger.info(f"Excluding {len(input_dois)} input DOIs from recommendations")
     
+    # Инициализация анализаторов
+    title_analyzer = TitleKeywordsAnalyzer()
+    keyword_analyzer = EnhancedKeywordAnalyzer()
+    
+    # Преобразуем ключевые слова в взвешенный словарь
+    keywords_lower = [kw.lower() for kw in keywords]
+    weighted_keywords = keyword_analyzer.extract_weighted_keywords(keywords_lower)
+    
+    # Добавляем исходные ключевые слова с весом
+    for keyword in keywords:
+        keyword_lower = keyword.lower()
+        keyword_base = title_analyzer._get_base_form(keyword_lower)
+        if keyword_base:
+            weighted_keywords[keyword_base] = weighted_keywords.get(keyword_base, 0) + 2.0
+    
+    # Нормализуем веса
+    if weighted_keywords:
+        max_weight = max(weighted_keywords.values())
+        normalized_keywords = {k: v/max_weight for k, v in weighted_keywords.items()}
+    else:
+        normalized_keywords = {}
+    
     # Track duplicate titles to keep only one version (with highest DOI number)
     title_to_work_map = {}
     
-    with st.spinner(f"Analyzing {len(works)} works and filtering duplicates..."):
+    with st.spinner(f"Analyzing {len(works)} works with enhanced algorithm..."):
         analyzed = []
         
         for work in works:
@@ -1088,7 +1634,6 @@ def analyze_works_for_topic(
                 continue
             
             title = work.get('title', '')
-            abstract = work.get('abstract', '')
             
             if not title:  # Skip works without title
                 continue
@@ -1104,30 +1649,16 @@ def analyze_works_for_topic(
                 logger.debug(f"Excluding work with input DOI: {doi_clean}")
                 continue
             
-            # Calculate relevance score
-            score = 0
-            matched = []
+            # Calculate enhanced relevance score
+            relevance_score, matched_keywords = calculate_enhanced_relevance(
+                work, normalized_keywords, title_analyzer
+            )
             
-            if title:
-                title_lower = title.lower()
-                abstract_lower = abstract.lower() if abstract else ''
-                
-                for keyword in keywords:
-                    kw_lower = keyword.lower()
-                    if kw_lower in title_lower:
-                        score += 3
-                        if keyword not in matched:  # Avoid duplicate matches
-                            matched.append(keyword)
-                    elif abstract and kw_lower in abstract_lower:
-                        score += 1
-                        if f"{keyword}*" not in matched:  # Abstract matches marked with *
-                            matched.append(f"{keyword}*")
-            
-            if score > 0:
+            if relevance_score > 0:
                 enriched = enrich_work_data(work)
                 enriched.update({
-                    'relevance_score': score,
-                    'matched_keywords': matched,
+                    'relevance_score': relevance_score,
+                    'matched_keywords': matched_keywords,
                     'analysis_time': datetime.now().isoformat()
                 })
                 
@@ -1162,8 +1693,12 @@ def analyze_works_for_topic(
         # Convert map back to list
         analyzed = list(title_to_work_map.values())
         
-        # Sort by relevance score (descending)
-        analyzed.sort(key=lambda x: x['relevance_score'], reverse=True)
+        # Многокритериальная сортировка
+        analyzed.sort(key=lambda x: (
+            -x['relevance_score'],          # 1. Релевантность
+            -x.get('publication_year', 0),  # 2. Новизна
+            -x.get('cited_by_count', 0)     # 3. Цитирования (в пределах диапазона)
+        ))
         
         # Apply top_n limit
         result = analyzed[:top_n]
@@ -1175,42 +1710,6 @@ def analyze_works_for_topic(
             logger.info(f"Limited from {len(analyzed)} to {len(result)} works by top_n parameter")
         
         return result
-
-def extract_numeric_from_doi(doi: str) -> int:
-    """
-    Extract numeric suffix from DOI for comparison.
-    
-    Examples:
-        "10.5281/zenodo.17747567" -> 17747567
-        "10.1002/anie.202000001" -> 202000001
-        "10.1038/nature12345" -> 12345
-    
-    Args:
-        doi: DOI string
-    
-    Returns:
-        Integer value of the numeric suffix, or 0 if no number found
-    """
-    if not doi:
-        return 0
-    
-    # Try to find the last numeric sequence in the DOI
-    # First, split by common separators
-    parts = doi.replace('.', '/').replace('-', '/').split('/')
-    
-    # Look for numeric parts from the end
-    for part in reversed(parts):
-        if part.isdigit():
-            return int(part)
-    
-    # If no pure numeric parts, try to extract numbers from mixed strings
-    import re
-    numbers = re.findall(r'\d+', doi)
-    if numbers:
-        # Use the last number found (often version or ID)
-        return int(numbers[-1])
-    
-    return 0
 
 # ============================================================================
 # ФУНКЦИИ ЭКСПОРТА
@@ -2551,14 +3050,14 @@ def step_results():
     
     # Анализ работ по теме (только если еще не анализировали или фильтры изменились)
     if 'relevant_works' not in st.session_state:
-        with st.spinner("Searching for fresh papers..."):
+        with st.spinner("Searching for fresh papers with enhanced algorithm..."):
             # Получаем топ-10 ключевых слов
             top_keywords = [kw for kw, _ in st.session_state.keyword_counter.most_common(10)]
             
             # Сохраняем ключевые слова в сессии
             st.session_state.top_keywords = top_keywords
             
-            # Выполняем анализ
+            # Выполняем улучшенный анализ
             relevant_works = analyze_works_for_topic(
                 st.session_state.selected_topic_id,
                 top_keywords,
@@ -2765,30 +3264,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
