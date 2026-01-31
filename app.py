@@ -1441,7 +1441,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
             # Проверяем, что файл действительно является изображением
             try:
                 # Проверяем с помощью PIL
-                pil_img = Image.open(logo_path)
+                pil_img = PILImage.open(logo_path)
                 pil_img.verify()  # Проверяем целостность файла
                 
                 # Используем Image из reportlab
@@ -2765,6 +2765,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
