@@ -1419,17 +1419,44 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # ========== ЗАГОЛОВОЧНАЯ СТРАНИЦА ==========
     
     story.append(Spacer(1, 1*cm))
-        
+
     # Добавляем логотип
     try:
-        logo_path = "logo.png"
-        if os.path.exists(logo_path):
-            logo = Image(logo_path, width=160, height=80)
-            logo.hAlign = 'CENTER'
-            story.append(logo)
-            story.append(Spacer(1, 0.5*cm))
+        # Пробуем несколько возможных путей
+        possible_paths = [
+            "logo.png",  # Текущая директория
+            "./logo.png",  # Относительный путь
+            "app/logo.png",  # Если в поддиректории
+            os.path.join(os.path.dirname(__file__), "logo.png"),  # Абсолютный путь
+            os.path.join(os.getcwd(), "logo.png")  # Текущая рабочая директория
+        ]
+        
+        logo_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                logo_path = path
+                break
+        
+        if logo_path:
+            # Проверяем, что файл действительно является изображением
+            try:
+                # Проверяем с помощью PIL
+                pil_img = Image.open(logo_path)
+                pil_img.verify()  # Проверяем целостность файла
+                
+                # Используем Image из reportlab
+                logo = Image(logo_path, width=160, height=80)
+                logo.hAlign = 'CENTER'
+                story.append(logo)
+                story.append(Spacer(1, 0.5*cm))
+                logger.info(f"Logo loaded successfully from: {logo_path}")
+            except Exception as img_error:
+                logger.warning(f"Invalid image file at {logo_path}: {img_error}")
+                raise ValueError("Invalid image file")
         else:
-            logger.warning(f"Logo file not found at: {logo_path}")
+            logger.warning("Logo file 'logo.png' not found in any expected location")
+            raise FileNotFoundError("Logo not found")
+            
     except Exception as e:
         logger.error(f"Could not load logo: {e}")
         # Если логотип не загрузился, показываем эмодзи
@@ -2738,6 +2765,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
