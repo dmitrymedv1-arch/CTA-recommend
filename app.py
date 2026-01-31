@@ -1539,7 +1539,7 @@ def passes_filters(work: dict, year_filter: List[int],
 def analyze_works_for_topic(
     topic_id: str,
     keywords: List[str],
-    max_citations: int = 10,
+    max_citations: int = 10,  # ← Этот параметр теперь не используется!
     max_works: int = 2000,
     top_n: int = 100,
     year_filter: List[int] = None,
@@ -1547,19 +1547,6 @@ def analyze_works_for_topic(
 ) -> List[dict]:
     """
     Analyze works for a specific topic with filtering of input DOIs and duplicate titles.
-    ИСПОЛЬЗУЕТ УЛУЧШЕННЫЙ АЛГОРИТМ С СЕМАНТИЧЕСКОЙ БЛИЗОСТЬЮ.
-    
-    Args:
-        topic_id: OpenAlex topic ID
-        keywords: List of keywords for relevance scoring
-        max_citations: Maximum citations threshold (deprecated, use citation_ranges instead)
-        max_works: Maximum number of works to fetch from OpenAlex
-        top_n: Number of top results to return
-        year_filter: List of years to filter by
-        citation_ranges: List of citation ranges as tuples (min, max)
-        
-    Returns:
-        List of enriched work dictionaries with duplicates removed
     """
     
     with st.spinner(f"Loading up to {max_works} works..."):
@@ -1616,22 +1603,11 @@ def analyze_works_for_topic(
         analyzed = []
         
         for work in works:
-            cited_by_count = work.get('cited_by_count', 0)
-            publication_year = work.get('publication_year', 0)
-            
-            # Filter by years
-            if publication_year not in year_filter:
+            # ========== ИСПРАВЛЕНИЕ НАЧИНАЕТСЯ ЗДЕСЬ ==========
+            # Проверяем работу фильтрами
+            if not passes_filters(work, year_filter, citation_ranges):
                 continue
-            
-            # Filter by citations (ranges)
-            in_range = False
-            for min_cit, max_cit in citation_ranges:
-                if min_cit <= cited_by_count <= max_cit:
-                    in_range = True
-                    break
-            
-            if not in_range:
-                continue
+            # ========== ИСПРАВЛЕНИЕ ЗАКАНЧИВАЕТСЯ ЗДЕСЬ ==========
             
             title = work.get('title', '')
             
@@ -3099,9 +3075,16 @@ def step_results():
     """, unsafe_allow_html=True)
     
     if not relevant_works:
-        st.markdown("""
+        # Добавляем отладочную информацию
+        st.markdown(f"""
         <div class="warning-message">
             <strong>⚠️ No papers match your filters</strong><br>
+            <strong>Debug info:</strong><br>
+            - Topic ID: {st.session_state.get('selected_topic_id', 'Not set')}<br>
+            - Years filter: {selected_years}<br>
+            - Citation ranges: {format_citation_ranges(selected_ranges)}<br>
+            - Total works fetched: {len(st.session_state.get('works_data', []))}<br>
+            <br>
             This might happen when:<br>
             1. Current year selected with high citation threshold (papers might not have enough citations yet)<br>
             2. Very specific citation range selected<br>
@@ -3110,6 +3093,10 @@ def step_results():
             Try adjusting your filters in Step 3.
         </div>
         """, unsafe_allow_html=True)
+        
+        # Для отладки также покажем логи
+        logger.warning(f"No relevant works found for topic {st.session_state.get('selected_topic_id')}")
+        logger.warning(f"Filters: years={selected_years}, citation_ranges={selected_ranges}")
     else:
         # Результаты в виде карточек
         st.markdown("<h4>🎯 Recommended Papers:</h4>", unsafe_allow_html=True)
@@ -3264,4 +3251,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
