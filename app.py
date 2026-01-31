@@ -35,7 +35,7 @@ from reportlab.platypus.flowables import Flowable
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import Image
 import xlsxwriter
-from PIL import Image
+from PIL import Image as PILImage
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -2765,6 +2765,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
