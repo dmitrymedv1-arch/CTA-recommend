@@ -3099,7 +3099,7 @@ def step_results():
     """, unsafe_allow_html=True)
     
     if not relevant_works:
-        st.warning("""
+        st.markdown("""
         <div class="warning-message">
             <strong>⚠️ No papers match your filters</strong><br>
             This might happen when:<br>
@@ -3264,3 +3264,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
