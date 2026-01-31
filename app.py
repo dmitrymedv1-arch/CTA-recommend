@@ -2706,7 +2706,7 @@ def main():
     
     # Заголовок (компактный)
     st.markdown("""
-    <h1 class="main-header"><img src="logo.png" alt="Logo" style="height: 1.5em; vertical-align: middle; margin-right: 10px;" />CTA Article Recommender Pro</h1>
+    <h1 class="main-header">🔬 CTA Article Recommender Pro</h1>
     <p style="font-size: 1rem; color: #666; margin-bottom: 1.5rem;">
     Discover fresh papers using AI-powered analysis
     </p>
@@ -2738,6 +2738,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
