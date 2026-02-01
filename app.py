@@ -346,6 +346,44 @@ COMMON_WORDS = {
 ALL_STOPWORDS = set(stopwords.words('english')).union(COMMON_WORDS)
 
 # ============================================================================
+# ХИМИЧЕСКИЕ КОНСТАНТЫ ДЛЯ АНАЛИЗА
+# ============================================================================
+
+# Химические элементы (базовый список)
+CHEM_ELEMENTS = {
+    'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar',
+    'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr',
+    'Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te', 'I', 'Xe',
+    'Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu',
+    'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn',
+    'Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr',
+    'Yb3+', 'Eu3+', 'Tb3+', 'Dy3+', 'Sm3+', 'Nd3+', 'Er3+', 'Tm3+', 'Ho3+', 'Pr3+', 'Ce3+', 'Gd3+',
+    # Общие ионы
+    'OH', 'CO3', 'SO4', 'NO3', 'PO4', 'SiO4', 'NH4', 'CH3', 'C2H5', 'CN', 'SCN', 'NCS',
+    # Функциональные группы
+    'Me', 'Et', 'Pr', 'Bu', 'Ph', 'Bn', 'Ac', 'Bz', 'Cp', 'Cy'
+}
+
+# Regex для химических формул (e.g., La2NiO4, La1.8Pr0.2Ni0.7Co0.3O4, TiO2)
+CHEM_FORMULA_PATTERN = r'\b(?:[A-Z][a-z]?\d*(?:\.\d+)?)+(?:[A-Z][a-z]?\d*(?:\.\d+)?)*\b'
+
+# Органические паттерны (IUPAC fusion, bis-, tris-, substituted- и т.п.)
+ORGANIC_PATTERNS = {
+    'fusion_bracket': r'\[\d+,\d+[-a-z,′′′\d]+[a-z]*\]',          # [1,2-a:2′,1′-c], [1,2,4]triazolo[4,3-a]
+    'bis_tris': r'\b(bis|tris|tetrakis|pentakis|hexakis)\[.*?\]',  # bis[...], tris[...]
+    'substituted': r'\([Ss]ubstituted[^)]+\)',                     # (Substituted-Aminomethyl)
+    'heterocycle_endings': r'(?:quinoxaline|pyridine|pyrrole|imidazole|thiazole|oxazole|quinoline|indole|purine|pteridine|carbazole|acridine|pyrazole|triazole|tetrazole|oxadiazole|thiadiazole|azepine|diazepine|azepinone)\b',
+    'common_organic': r'\b(?:benzene|toluene|xylene|aniline|phenol|naphthalene|anthracene|phenanthrene|pyrene|coronene|fullerene|graphene|graphene oxide|reduced graphene oxide|carbon nanotube|MOF|COF|ZIF|perovskite|zeolite|mesoporous)\b',
+}
+
+# Веса для разных типов химических паттернов
+CHEMICAL_WEIGHT = 2.5
+ORGANIC_PATTERN_WEIGHT = 2.8
+FUSION_MATCH_BONUS = 3.5
+BIS_MATCH_BONUS = 2.5
+CHEM_FORMULA_BONUS = 3.0
+
+# ============================================================================
 # КЭШИРОВАНИЕ НА УРОВНЕ SQLite
 # ============================================================================
 
@@ -1139,6 +1177,135 @@ def extract_keywords_from_title(title: str) -> List[str]:
     
     return filtered_words
 
+def parse_chemical_elements(formula: str) -> Set[str]:
+    """
+    Парсит элементы из химической формулы, игнорируя коэффициенты.
+    
+    Примеры:
+        "La2NiO4" → {'La', 'Ni', 'O'}
+        "La1.8Pr0.2Ni0.7Co0.3O4" → {'La', 'Pr', 'Ni', 'Co', 'O'}
+        "TiO2" → {'Ti', 'O'}
+        "C60" → {'C'}
+    
+    Args:
+        formula: Химическая формула
+    
+    Returns:
+        Множество химических элементов в формуле
+    """
+    if not formula or len(formula) < 2:
+        return set()
+    
+    elements = set()
+    i = 0
+    n = len(formula)
+    
+    while i < n:
+        # Начинается с заглавной буквы
+        if formula[i].isupper():
+            elem = formula[i]
+            i += 1
+            
+            # Проверяем строчную букву (двухбуквенные символы)
+            if i < n and formula[i].islower():
+                elem += formula[i]
+                i += 1
+            
+            # Проверяем что элемент существует
+            if elem in CHEM_ELEMENTS:
+                elements.add(elem)
+            elif len(elem) == 2 and elem[0] in CHEM_ELEMENTS:
+                # Проверяем однобуквенные варианты
+                elements.add(elem[0])
+        else:
+            i += 1  # Пропускаем цифры, точки, скобки и т.д.
+    
+    return elements
+
+def extract_chemical_formulas_from_text(text: str) -> List[str]:
+    """
+    Извлекает химические формулы из текста.
+    
+    Args:
+        text: Текст для анализа
+    
+    Returns:
+        Список найденных химических формул
+    """
+    if not text:
+        return []
+    
+    # Ищем формулы по шаблону
+    formulas = re.findall(CHEM_FORMULA_PATTERN, text)
+    
+    # Фильтруем: минимум 2 символа, содержит хотя бы одну заглавную букву и цифру
+    valid_formulas = []
+    for formula in formulas:
+        # Проверяем что это похоже на химическую формулу
+        if len(formula) >= 2 and any(c.isupper() for c in formula):
+            # Проверяем что содержит хотя бы один химический элемент
+            elements = parse_chemical_elements(formula)
+            if len(elements) >= 1:
+                valid_formulas.append(formula)
+    
+    return valid_formulas
+
+def extract_organic_patterns_from_text(text: str) -> Dict[str, List[str]]:
+    """
+    Извлекает органические паттерны из текста.
+    
+    Args:
+        text: Текст для анализа
+    
+    Returns:
+        Словарь с типами паттернов и найденными значениями
+    """
+    if not text:
+        return {}
+    
+    patterns_found = {}
+    
+    for pattern_type, regex_pattern in ORGANIC_PATTERNS.items():
+        matches = re.findall(regex_pattern, text, re.IGNORECASE)
+        if matches:
+            # Убираем дубликаты
+            unique_matches = list(set(matches))
+            patterns_found[pattern_type] = unique_matches
+    
+    return patterns_found
+
+def calculate_chemical_similarity(formula1: str, formula2: str) -> float:
+    """
+    Вычисляет химическую схожесть между двумя формулами.
+    
+    Args:
+        formula1: Первая формула
+        formula2: Вторая формула
+    
+    Returns:
+        Коэффициент схожести от 0.0 до 1.0
+    """
+    elements1 = parse_chemical_elements(formula1)
+    elements2 = parse_chemical_elements(formula2)
+    
+    if not elements1 or not elements2:
+        return 0.0
+    
+    # Вычисляем коэффициент Жаккара
+    intersection = elements1.intersection(elements2)
+    union = elements1.union(elements2)
+    
+    if not union:
+        return 0.0
+    
+    similarity = len(intersection) / len(union)
+    
+    # Бонус за полное совпадение
+    if elements1 == elements2:
+        similarity = min(1.0, similarity + 0.3)
+    
+    return similarity
+
 def extract_numeric_from_doi(doi: str) -> int:
     """
     Extract numeric suffix from DOI for comparison.
@@ -1533,7 +1700,13 @@ class TitleKeywordsAnalyzer:
             'simulation', 'solution', 'specification', 'synthesis', 'transformation',
             'treatment', 'utilization', 'validation', 'verification'
         }
-    
+
+            # Химические константы
+            self.chemical_elements = CHEM_ELEMENTS
+            self.chemical_weight = CHEMICAL_WEIGHT
+            self.organic_weight = ORGANIC_PATTERN_WEIGHT
+            self.chem_formula_bonus = CHEM_FORMULA_BONUS
+        
     def _get_lemma(self, word: str) -> str:
         """Get word lemma considering special rules"""
         if not word or len(word) < 3:
@@ -1678,6 +1851,100 @@ class TitleKeywordsAnalyzer:
 
         return compounds
 
+    def extract_chemical_formulas(self, text: str) -> List[Dict]:
+        """
+        Извлекает химические формулы как специальные compound words.
+        
+        Args:
+            text: Текст для анализа
+        
+        Returns:
+            Список словарей с информацией о формулах
+        """
+        if not text or text in ['Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
+            return []
+        
+        formulas = extract_chemical_formulas_from_text(text)
+        chem_formulas = []
+        
+        for formula in formulas:
+            elements = parse_chemical_elements(formula)
+            if elements:  # Хотя бы один элемент
+                # Создаем лемму для сравнения (сортированные элементы через дефис)
+                sorted_elements = sorted(elements)
+                lemma = '-'.join(sorted_elements)
+                
+                chem_formulas.append({
+                    'original': formula,
+                    'lemma': lemma,
+                    'type': 'chemical',
+                    'elements': elements,
+                    'element_count': len(elements),
+                    'weight': self.chemical_weight * (1 + 0.1 * len(elements))  # Вес зависит от сложности
+                })
+        
+        return chem_formulas
+    
+    def extract_organic_patterns(self, text: str) -> List[Dict]:
+        """
+        Извлекает IUPAC-подобные органические паттерны для повышенного веса.
+        
+        Args:
+            text: Текст для анализа
+        
+        Returns:
+            Список словарей с информацией об органических паттернах
+        """
+        if not text or text in ['Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
+            return []
+        
+        patterns_found = []
+        text_lower = text.lower()
+        
+        for pattern_type, regex in ORGANIC_PATTERNS.items():
+            matches = re.findall(regex, text, re.IGNORECASE)
+            for match in matches:
+                if isinstance(match, tuple):
+                    match = match[0]  # Берем первую группу если match - tuple
+                
+                # Нормализуем для сравнения
+                normalized = re.sub(r'[\s()[\]]', '', match.lower())
+                
+                # Определяем вес в зависимости от типа паттерна
+                weight_modifier = self.organic_weight
+                if pattern_type == 'fusion_bracket':
+                    weight_modifier *= 1.4  # Fusion паттерны важнее
+                elif pattern_type == 'bis_tris':
+                    weight_modifier *= 1.2
+                elif pattern_type == 'heterocycle_endings':
+                    weight_modifier *= 1.1
+                
+                patterns_found.append({
+                    'original': match,
+                    'lemma': normalized,
+                    'type': 'organic_pattern',
+                    'subtype': pattern_type,
+                    'weight': weight_modifier
+                })
+        
+        return patterns_found
+    
+    def extract_all_chemical_info(self, text: str) -> Dict:
+        """
+        Извлекает всю химическую информацию из текста.
+        
+        Args:
+            text: Текст для анализа
+        
+        Returns:
+            Словарь со всей химической информацией
+        """
+        return {
+            'formulas': self.extract_chemical_formulas(text),
+            'organic_patterns': self.extract_organic_patterns(text),
+            'has_chemical_content': False  # Будет обновлено ниже
+        }
+
     def _are_similar_lemmas(self, lemma1: str, lemma2: str) -> bool:
         """Check if lemmas are similar (e.g., singular/plural)"""
         if lemma1 == lemma2:
@@ -1720,13 +1987,17 @@ class EnhancedKeywordAnalyzer:
         # Веса для разных типов слов
         self.weights = {
             'content': 1.0,
-            'compound': 1.5,  # Составные слова важнее
-            'scientific': 0.7  # Научные стоп-слова менее важны
+            'compound': 1.5,
+            'scientific': 0.7,
+            'chemical': 2.3,
+            'organic_pattern': 2.5
         }
     
     def extract_weighted_keywords(self, titles: List[str]) -> Dict[str, float]:
-        """Извлечение ключевых слов с весами"""
+        """Извлечение ключевых слов с весами, включая химические паттерны"""
         weighted_counter = Counter()
+        chemical_formulas_count = 0
+        organic_patterns_count = 0
         
         for title in titles:
             if not title:
@@ -1735,6 +2006,8 @@ class EnhancedKeywordAnalyzer:
             # Извлекаем все типы слов
             content_words = self.title_analyzer.preprocess_content_words(title)
             compound_words = self.title_analyzer.extract_compound_words(title)
+            chemical_formulas = self.title_analyzer.extract_chemical_formulas(title)
+            organic_patterns = self.title_analyzer.extract_organic_patterns(title)
             
             # Учитываем веса
             for word_info in content_words:
@@ -1746,21 +2019,109 @@ class EnhancedKeywordAnalyzer:
                 lemma = word_info['lemma']
                 if lemma:
                     weighted_counter[lemma] += self.weights['compound']
+            
+            for formula_info in chemical_formulas:
+                lemma = formula_info['lemma']
+                if lemma:
+                    # Используем индивидуальный вес для формулы
+                    weight = formula_info.get('weight', self.weights['chemical'])
+                    weighted_counter[lemma] += weight
+                    chemical_formulas_count += 1
+            
+            for pattern_info in organic_patterns:
+                lemma = pattern_info['lemma']
+                if lemma:
+                    # Используем индивидуальный вес для паттерна
+                    weight = pattern_info.get('weight', self.weights['organic_pattern'])
+                    weighted_counter[lemma] += weight
+                    organic_patterns_count += 1
+        
+        # Добавляем маркеры для химического контента
+        if chemical_formulas_count > 0:
+            weighted_counter['__CHEMICAL_FORMULAS__'] = chemical_formulas_count
+        if organic_patterns_count > 0:
+            weighted_counter['__ORGANIC_PATTERNS__'] = organic_patterns_count
         
         return weighted_counter
+    
+    def extract_chemical_keywords(self, keywords: List[str]) -> Dict[str, Dict]:
+        """
+        Извлекает химические ключевые слова из списка.
+        
+        Args:
+            keywords: Список ключевых слов
+        
+        Returns:
+            Словарь с химическими ключевыми словами по типам
+        """
+        chemical_keywords = {
+            'formulas': [],
+            'elements': [],
+            'organic_patterns': [],
+            'common_chemicals': []
+        }
+        
+        for keyword in keywords:
+            keyword_lower = keyword.lower()
+            
+            # Проверяем на химическую формулу
+            formulas = extract_chemical_formulas_from_text(keyword)
+            if formulas:
+                for formula in formulas:
+                    chemical_keywords['formulas'].append({
+                        'original': formula,
+                        'elements': parse_chemical_elements(formula)
+                    })
+            
+            # Проверяем на органические паттерны
+            organic_patterns = extract_organic_patterns_from_text(keyword)
+            for pattern_type, matches in organic_patterns.items():
+                for match in matches:
+                    chemical_keywords['organic_patterns'].append({
+                        'original': match,
+                        'type': pattern_type
+                    })
+            
+            # Проверяем на химические элементы
+            # Разделяем на слова и проверяем каждый
+            words = re.findall(r'\b[a-zA-Z]+\b', keyword)
+            for word in words:
+                if word in CHEM_ELEMENTS or (len(word) == 2 and word[0].isupper() and word[1].islower() and word in CHEM_ELEMENTS):
+                    chemical_keywords['elements'].append(word)
+        
+        return chemical_keywords
 
 def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float], 
-                                 analyzer: TitleKeywordsAnalyzer) -> Tuple[float, List[str]]:
-    """Расчет релевантности с учетом семантической близости"""
+                                 analyzer: TitleKeywordsAnalyzer) -> Tuple[float, List[str], Dict]:
+    """
+    Расчет релевантности с учетом семантической близости и химических паттернов.
+    
+    Возвращает:
+        - Оценку релевантности (0-10)
+        - Список совпавших ключевых слов
+        - Словарь с дополнительной химической информацией
+    """
     
     title = work.get('title', '').lower()
     abstract = work.get('abstract', '').lower()
+    full_text = title + " " + abstract
     
     if not title:
-        return 0.0, []
+        return 0.0, [], {}
     
     score = 0.0
     matched_keywords = []
+    chemical_info = {
+        'has_chemical_formula': False,
+        'has_organic_pattern': False,
+        'chemical_bonus': 0.0,
+        'organic_bonus': 0.0,
+        'formula_matches': [],
+        'organic_matches': [],
+        'element_matches': []
+    }
+    
+    # ========== БАЗОВЫЙ АНАЛИЗ (существующий) ==========
     
     # Извлекаем слова из заголовка анализируемой работы
     title_words = analyzer.preprocess_content_words(title)
@@ -1772,6 +2133,10 @@ def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float],
     
     # Проверяем каждое ключевое слово
     for keyword, weight in keywords.items():
+        # Пропускаем системные маркеры
+        if keyword.startswith('__') and keyword.endswith('__'):
+            continue
+            
         keyword_lower = keyword.lower()
         keyword_base = analyzer._get_base_form(keyword_lower)
         
@@ -1796,15 +2161,162 @@ def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float],
                         matched_keywords.append(f"{keyword}~{lemma}")
                     break
     
-    # Дополнительные бонусы
-    compound_words_list = analyzer.extract_compound_words(title)
-    if compound_words_list:
-        score += len(compound_words_list) * 0.5
+    # ========== ХИМИЧЕСКИЙ АНАЛИЗ ==========
     
-    return score, matched_keywords
-    normalized_score = min(score * 2, 10)
+    # Извлекаем химические формулы из целевой работы
+    target_formulas = analyzer.extract_chemical_formulas(full_text)
+    target_organic = analyzer.extract_organic_patterns(full_text)
     
-    return normalized_score, matched_keywords
+    # Обновляем химическую информацию
+    if target_formulas:
+        chemical_info['has_chemical_formula'] = True
+        chemical_info['formula_matches'] = [f['original'] for f in target_formulas]
+    
+    if target_organic:
+        chemical_info['has_organic_pattern'] = True
+        chemical_info['organic_matches'] = [p['original'] for p in target_organic]
+    
+    # Извлекаем химические элементы из формул
+    target_elements = set()
+    for formula_info in target_formulas:
+        target_elements.update(formula_info['elements'])
+    
+    # Ищем химические формулы в ключевых словах
+    input_chemical_elements = set()
+    input_chemical_formulas = []
+    input_organic_patterns = []
+    
+    for keyword in keywords.keys():
+        # Пропускаем системные маркеры
+        if keyword.startswith('__') and keyword.endswith('__'):
+            continue
+            
+        # Проверяем на химическую формулу
+        formulas = extract_chemical_formulas_from_text(keyword)
+        if formulas:
+            input_chemical_formulas.extend(formulas)
+            for formula in formulas:
+                input_chemical_elements.update(parse_chemical_elements(formula))
+        
+        # Проверяем на органические паттерны
+        organic_patterns = extract_organic_patterns_from_text(keyword)
+        for pattern_type, matches in organic_patterns.items():
+            for match in matches:
+                input_organic_patterns.append({
+                    'original': match,
+                    'type': pattern_type
+                })
+        
+        # Проверяем на химические элементы (отдельные слова)
+        words = keyword.split()
+        for word in words:
+            if word in CHEM_ELEMENTS:
+                input_chemical_elements.add(word)
+    
+    # ========== РАСЧЕТ ХИМИЧЕСКОГО БОНУСА ==========
+    
+    # Бонус за совпадение химических элементов
+    if input_chemical_elements and target_elements:
+        common_elements = input_chemical_elements.intersection(target_elements)
+        if common_elements:
+            element_match_ratio = len(common_elements) / len(input_chemical_elements) if input_chemical_elements else 0
+            
+            if element_match_ratio >= 0.7:
+                chemical_bonus = 3.0 * element_match_ratio
+                chemical_info['chemical_bonus'] = chemical_bonus
+                chemical_info['element_matches'] = list(common_elements)
+                score += chemical_bonus
+                
+                matched_keywords.append(f"Chemical elements: {', '.join(sorted(common_elements))}")
+    
+    # Бонус за совпадение химических формул
+    if input_chemical_formulas and target_formulas:
+        for input_formula in input_chemical_formulas:
+            input_elements = parse_chemical_elements(input_formula)
+            
+            for target_formula_info in target_formulas:
+                target_elements_formula = target_formula_info['elements']
+                
+                # Вычисляем схожесть формул
+                similarity = calculate_chemical_similarity(
+                    input_formula, 
+                    target_formula_info['original']
+                )
+                
+                if similarity >= 0.5:  # Порог схожести
+                    formula_bonus = CHEM_FORMULA_BONUS * similarity
+                    chemical_info['chemical_bonus'] += formula_bonus
+                    score += formula_bonus
+                    
+                    matched_keywords.append(f"Formula match: {input_formula} ≈ {target_formula_info['original']}")
+                    break
+    
+    # ========== РАСЧЕТ БОНУСА ЗА ОРГАНИЧЕСКИЕ ПАТТЕРНЫ ==========
+    
+    if input_organic_patterns and target_organic:
+        for input_pattern in input_organic_patterns:
+            input_original = input_pattern['original'].lower()
+            input_type = input_pattern['type']
+            
+            for target_pattern in target_organic:
+                target_original = target_pattern['original'].lower()
+                target_type = target_pattern['type']
+                
+                # Нормализуем для сравнения (убираем пробелы и скобки)
+                input_norm = re.sub(r'[\s()[\]]', '', input_original)
+                target_norm = re.sub(r'[\s()[\]]', '', target_original)
+                
+                # Проверяем совпадение
+                if input_norm == target_norm or input_norm in target_norm or target_norm in input_norm:
+                    organic_bonus = 0.0
+                    
+                    if input_type == 'fusion_bracket':
+                        organic_bonus = FUSION_MATCH_BONUS
+                        matched_keywords.append(f"Fusion pattern: {input_original}")
+                    elif input_type == 'bis_tris':
+                        organic_bonus = BIS_MATCH_BONUS
+                        matched_keywords.append(f"Bis/tris pattern: {input_original}")
+                    elif input_type == 'heterocycle_endings':
+                        organic_bonus = 2.0
+                        matched_keywords.append(f"Heterocycle: {input_original}")
+                    else:
+                        organic_bonus = 1.5
+                        matched_keywords.append(f"Organic pattern: {input_original}")
+                    
+                    chemical_info['organic_bonus'] += organic_bonus
+                    score += organic_bonus
+                    break
+    
+    # ========== ДОПОЛНИТЕЛЬНЫЕ БОНУСЫ ==========
+    
+    # Бонус за составные слова
+    if compound_words:
+        score += len(compound_words) * 0.5
+    
+    # Бонус за наличие химической формулы в заголовке
+    if chemical_info['has_chemical_formula']:
+        score += 1.0
+        matched_keywords.append("Contains chemical formula")
+    
+    # Бонус за наличие органических паттернов
+    if chemical_info['has_organic_pattern']:
+        score += 0.5
+        matched_keywords.append("Contains organic patterns")
+    
+    # ========== НОРМАЛИЗАЦИЯ И ОГРАНИЧЕНИЕ ==========
+    
+    # Ограничиваем максимальный балл
+    max_score = 10.0
+    normalized_score = min(score, max_score)
+    
+    # Округляем до одного знака после запятой
+    normalized_score = round(normalized_score, 1)
+    
+    # Обновляем общий бонус в химической информации
+    total_chemical_bonus = chemical_info.get('chemical_bonus', 0) + chemical_info.get('organic_bonus', 0)
+    chemical_info['total_chemical_bonus'] = total_chemical_bonus
+    
+    return normalized_score, matched_keywords, chemical_info
 
 def passes_filters(work: dict, year_filter: List[int], 
                    citation_ranges: List[Tuple[int, int]]) -> bool:
@@ -2089,9 +2601,19 @@ def analyze_filtered_works_for_topic(
                 continue
             
             # Calculate enhanced relevance score
-            relevance_score, matched_keywords = calculate_enhanced_relevance(
+            relevance_score, matched_keywords, chemical_info = calculate_enhanced_relevance(
                 work, normalized_keywords, title_analyzer
             )
+            
+            # Затем обновите enriched:
+            enriched.update({
+                'relevance_score': relevance_score,
+                'matched_keywords': matched_keywords,
+                'analysis_time': datetime.now().isoformat(),
+                'has_chemical_formula': chemical_info.get('has_chemical_formula', False),
+                'has_organic_pattern': chemical_info.get('has_organic_pattern', False),
+                'chemical_bonus': chemical_info.get('total_chemical_bonus', 0.0)
+            })
             
             if relevance_score > 0:
                 enriched = enrich_work_data(work)
@@ -3131,7 +3653,7 @@ def create_metric_card_compact(title: str, value, icon: str = "📊"):
     """, unsafe_allow_html=True)
 
 def create_result_card_compact(work: dict, index: int):
-    """Создает компактную карточку результата"""
+    """Создает компактную карточку результата с химическими маркерами"""
     citation_count = work.get('cited_by_count', 0)
     
     # Определяем цвет баджа цитирования
@@ -3147,6 +3669,13 @@ def create_result_card_compact(work: dict, index: int):
     else:
         badge_color = "#f44336"
         badge_text = f"{citation_count} citations"
+    
+    # Химические маркеры
+    chemical_markers = []
+    if work.get('has_chemical_formula'):
+        chemical_markers.append("🧪")
+    if work.get('has_organic_pattern'):
+        chemical_markers.append("⚗️")
     
     oa_badge = '🔓' if work.get('is_oa') else '🔒'
     doi_url = work.get('doi_url', '')
@@ -3166,6 +3695,7 @@ def create_result_card_compact(work: dict, index: int):
                 <span style="background: #e3f2fd; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 5px;">
                     Score: {work.get('relevance_score', 0)}
                 </span>
+                {' '.join(chemical_markers)}
             </div>
             <span style="color: #666; font-size: 0.8rem;">{work.get('publication_year', '')}</span>
         </div>
@@ -3650,7 +4180,11 @@ def step_results():
         current_year = datetime.now().year
         recent_count = sum(1 for w in relevant_works if w.get('publication_year', 0) >= current_year - 2)
         create_metric_card_compact("Recent (≤2y)", recent_count, "🕒")
-    
+
+    if relevant_works:
+        chem_count = sum(1 for w in relevant_works if w.get('has_chemical_formula') or w.get('has_organic_pattern'))
+        create_metric_card_compact("Chemical", f"{chem_count}", "🧪")
+        
     if not relevant_works:
         # Добавляем отладочную информацию
         st.markdown(f"""
@@ -3852,4 +4386,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
