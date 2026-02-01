@@ -226,6 +226,73 @@ st.markdown("""
     .download-button {
         flex: 1;
     }
+    
+    /* Новые стили для фильтров */
+    .filter-section {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 15px;
+        border: 1px solid #dee2e6;
+    }
+    
+    .filter-header {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #667eea;
+    }
+    
+    .filter-stats {
+        background: white;
+        border-radius: 8px;
+        padding: 12px;
+        border: 1px solid #ced4da;
+        margin-bottom: 15px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    
+    .citation-checkbox-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+    }
+    
+    .citation-checkbox-item {
+        flex: 1;
+        text-align: center;
+    }
+    
+    .year-checkbox-container {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+    
+    .year-checkbox-item {
+        background: white;
+        border-radius: 6px;
+        padding: 10px;
+        border: 1px solid #dee2e6;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .year-checkbox-item:hover {
+        border-color: #667eea;
+        background-color: #f8f9ff;
+    }
+    
+    .year-checkbox-item.selected {
+        background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+        border-color: #667eea;
+        color: #667eea;
+        font-weight: 600;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -500,6 +567,229 @@ def format_citation_ranges(ranges: List[Tuple[int, int]]) -> str:
             parts.append(f"{start}-{end}")
     
     return ", ".join(parts)
+
+# ============================================================================
+# НОВЫЕ ФУНКЦИИ ДЛЯ ОБНОВЛЕННОГО АНАЛИЗА С ФИЛЬТРАЦИЕЙ НА СТОРОНЕ API
+# ============================================================================
+
+def build_openalex_filter(topic_id: str, selected_years: List[int], 
+                         selected_citations: List[Tuple[int, int]]) -> str:
+    """
+    Строит фильтр для OpenAlex API на основе выбранных параметров.
+    
+    Args:
+        topic_id: Идентификатор темы (например, "T10366")
+        selected_years: Список выбранных годов [2022, 2023, 2024]
+        selected_citations: Список диапазонов цитирований [(0,0), (1,2), ...]
+    
+    Returns:
+        Строка фильтра для OpenAlex API
+    """
+    filter_parts = [f"topics.id:{topic_id}"]
+    
+    # Добавляем фильтр по годам
+    if selected_years:
+        years_str = "|".join(map(str, selected_years))
+        filter_parts.append(f"publication_year:{years_str}")
+    
+    # Добавляем фильтр по цитированиям
+    if selected_citations:
+        cites_str_parts = []
+        for start, end in selected_citations:
+            if start == end:
+                cites_str_parts.append(str(start))
+            else:
+                cites_str_parts.append(f"{start}-{end}")
+        
+        if cites_str_parts:
+            cites_str = "|".join(cites_str_parts)
+            filter_parts.append(f"cited_by_count:{cites_str}")
+    
+    return ",".join(filter_parts)
+
+def get_topic_total_works_count(topic_id: str) -> int:
+    """
+    Получает общее количество работ по теме из OpenAlex.
+    
+    Args:
+        topic_id: Идентификатор темы
+    
+    Returns:
+        Общее количество работ по теме
+    """
+    # Проверяем кэш
+    cache_key = f"topic_total_{topic_id}"
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT data FROM topics_cache 
+        WHERE topic_id = ? AND (expires_at IS NULL OR expires_at > ?)
+    ''', (cache_key, datetime.now()))
+    
+    result = cursor.fetchone()
+    if result:
+        return int(json.loads(result[0]))
+    
+    # Если нет в кэше, запрашиваем из API
+    try:
+        url = f"{OPENALEX_BASE_URL}/topics/{topic_id}"
+        response = requests.get(url, headers=POLITE_POOL_HEADER, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            works_count = data.get('works_count', 0)
+            
+            # Сохраняем в кэш
+            expires_at = datetime.now() + timedelta(days=7)
+            cursor.execute('''
+                INSERT OR REPLACE INTO topics_cache (topic_id, data, expires_at)
+                VALUES (?, ?, ?)
+            ''', (cache_key, str(works_count), expires_at))
+            conn.commit()
+            
+            return works_count
+        else:
+            logger.error(f"Error fetching topic stats: {response.status_code}")
+            return 0
+    except Exception as e:
+        logger.error(f"Error in get_topic_total_works_count: {str(e)}")
+        return 0
+
+def fetch_filtered_works_by_topic(
+    topic_id: str,
+    years_filter: List[int],
+    citations_filter: List[Tuple[int, int]],
+    max_results: Optional[int] = None,
+    progress_callback=None
+) -> Tuple[List[dict], int]:
+    """
+    Загружает работы по теме с фильтрацией на стороне API.
+    
+    Args:
+        topic_id: Идентификатор темы
+        years_filter: Список годов для фильтрации
+        citations_filter: Список диапазонов цитирований
+        max_results: Максимальное количество результатов (None = все)
+        progress_callback: Функция обратного вызова для прогресса
+    
+    Returns:
+        Кортеж (список работ, общее количество после фильтров)
+    """
+    # Строим фильтр для API
+    filter_str = build_openalex_filter(topic_id, years_filter, citations_filter)
+    
+    # Ключ кэша на основе фильтров
+    cache_key = f"filtered_{topic_id}_{hashlib.md5(filter_str.encode()).hexdigest()[:16]}"
+    
+    # Проверяем кэш
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT data FROM topic_works_cache 
+        WHERE topic_id = ? AND cursor_key = ? 
+        AND (expires_at IS NULL OR expires_at > ?)
+    ''', (topic_id, cache_key, datetime.now()))
+    
+    result = cursor.fetchone()
+    if result:
+        cached_data = json.loads(result[0])
+        works_list = cached_data.get('works', [])
+        total_count = cached_data.get('total_count', 0)
+        
+        if max_results and len(works_list) >= max_results:
+            logger.info(f"Using cached filtered data for topic {topic_id}")
+            return works_list[:max_results] if max_results else works_list, total_count
+    
+    # Если нет в кэше, загружаем с API
+    logger.info(f"Fetching filtered works for topic {topic_id}")
+    logger.info(f"Filter: {filter_str}")
+    
+    all_works = []
+    cursor_param = "*"
+    page_count = 0
+    total_count = 0
+    
+    try:
+        while True:
+            if max_results and len(all_works) >= max_results:
+                break
+                
+            page_count += 1
+            
+            # Формируем URL с фильтрами
+            params = {
+                "filter": filter_str,
+                "per-page": CURSOR_PAGE_SIZE,
+                "cursor": cursor_param,
+                "mailto": MAILTO
+            }
+            
+            url = f"{OPENALEX_BASE_URL}/works"
+            response = requests.get(url, params=params, headers=POLITE_POOL_HEADER, timeout=60)
+            
+            if response.status_code != 200:
+                logger.error(f"Error fetching works: {response.status_code}")
+                break
+            
+            data = response.json()
+            
+            # Получаем общее количество на первой странице
+            if page_count == 1:
+                total_count = data.get('meta', {}).get('count', 0)
+                logger.info(f"Total works after filters: {total_count}")
+                
+                if total_count == 0:
+                    return [], 0
+            
+            works = data.get('results', [])
+            if not works:
+                break
+            
+            all_works.extend(works)
+            
+            # Вызываем callback прогресса
+            if progress_callback and total_count > 0:
+                progress = min(len(all_works) / min(total_count, max_results or total_count), 1.0)
+                progress_callback(progress, len(all_works), page_count, total_count)
+            
+            logger.info(f"Page {page_count}: got {len(works)} works, total: {len(all_works)}/{total_count}")
+            
+            # Получаем следующий курсор
+            next_cursor = data.get('meta', {}).get('next_cursor')
+            if not next_cursor:
+                break
+            
+            cursor_param = next_cursor
+            
+            # Небольшая задержка для соблюдения rate limit
+            time.sleep(0.1)
+        
+        # Сохраняем в кэш
+        if all_works:
+            cache_data = {
+                'works': all_works,
+                'total_count': total_count,
+                'filter': filter_str,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            expires_at = datetime.now() + timedelta(days=3)
+            cursor.execute('''
+                INSERT OR REPLACE INTO topic_works_cache (topic_id, cursor_key, data, expires_at)
+                VALUES (?, ?, ?, ?)
+            ''', (topic_id, cache_key, json.dumps(cache_data), expires_at))
+            conn.commit()
+        
+        # Ограничиваем результаты если нужно
+        result_works = all_works[:max_results] if max_results else all_works
+        
+        return result_works, total_count
+        
+    except Exception as e:
+        logger.error(f"Error in fetch_filtered_works_by_topic: {str(e)}")
+        return all_works, total_count
 
 # ============================================================================
 # ASYNCIO + AIOHTTP
@@ -1688,6 +1978,176 @@ def analyze_works_for_topic(
         return result
 
 # ============================================================================
+# НОВАЯ ФУНКЦИЯ ДЛЯ УЛУЧШЕННОГО АНАЛИЗА С ФИЛЬТРАЦИЕЙ НА СТОРОНЕ API
+# ============================================================================
+
+def analyze_filtered_works_for_topic(
+    topic_id: str,
+    keywords: List[str],
+    selected_years: List[int],
+    selected_citations: List[Tuple[int, int]],
+    max_works: Optional[int] = None,
+    top_n: int = 100
+) -> Tuple[List[dict], int]:
+    """
+    Analyze works for a specific topic with server-side filtering.
+    
+    Args:
+        topic_id: Идентификатор темы
+        keywords: Список ключевых слов для анализа
+        selected_years: Список выбранных годов
+        selected_citations: Список диапазонов цитирований
+        max_works: Максимальное количество работ для загрузки (None = все)
+        top_n: Количество топ результатов для возврата
+    
+    Returns:
+        Кортеж (список релевантных работ, общее количество работ после фильтров)
+    """
+    # Get input DOIs from session state to exclude them from recommendations
+    input_dois = set()
+    if 'dois' in st.session_state:
+        # Normalize input DOIs (remove https://doi.org/ prefix for comparison)
+        for doi in st.session_state.dois:
+            if doi.startswith('https://doi.org/'):
+                clean_doi = doi.replace('https://doi.org/', '').lower()
+            else:
+                clean_doi = doi.lower()
+            input_dois.add(clean_doi)
+        logger.info(f"Excluding {len(input_dois)} input DOIs from recommendations")
+    
+    # Загружаем отфильтрованные работы
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    def update_progress(progress, count, page, total):
+        progress_bar.progress(progress)
+        status_text.text(f"Page {page}: {count}/{total if total > 0 else '?'} works fetched")
+    
+    works, total_count = fetch_filtered_works_by_topic(
+        topic_id=topic_id,
+        years_filter=selected_years,
+        citations_filter=selected_citations,
+        max_results=max_works,
+        progress_callback=update_progress
+    )
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    if not works:
+        logger.warning(f"No works found for topic {topic_id} with given filters")
+        return [], total_count
+    
+    logger.info(f"Loaded {len(works)} works (total after filters: {total_count})")
+    
+    # Инициализация анализаторов
+    title_analyzer = TitleKeywordsAnalyzer()
+    keyword_analyzer = EnhancedKeywordAnalyzer()
+    
+    # Преобразуем ключевые слова в взвешенный словарь
+    keywords_lower = [kw.lower() for kw in keywords]
+    weighted_keywords = keyword_analyzer.extract_weighted_keywords(keywords_lower)
+    
+    # Добавляем исходные ключевые слова с весом
+    for keyword in keywords:
+        keyword_lower = keyword.lower()
+        keyword_base = title_analyzer._get_base_form(keyword_lower)
+        if keyword_base:
+            weighted_keywords[keyword_base] = weighted_keywords.get(keyword_base, 0) + 2.0
+    
+    # Нормализуем веса
+    if weighted_keywords:
+        max_weight = max(weighted_keywords.values())
+        normalized_keywords = {k: v/max_weight for k, v in weighted_keywords.items()}
+    else:
+        normalized_keywords = {}
+    
+    # Track duplicate titles to keep only one version (with highest DOI number)
+    title_to_work_map = {}
+    
+    with st.spinner(f"Analyzing {len(works)} works with enhanced algorithm..."):
+        analyzed = []
+        
+        for work in works:
+            title = work.get('title', '')
+            
+            if not title:  # Skip works without title
+                continue
+            
+            # Extract and clean DOI for comparison
+            doi_raw = work.get('doi', '')
+            doi_clean = ''
+            if doi_raw:
+                doi_clean = str(doi_raw).replace('https://doi.org/', '').lower()
+            
+            # RULE 1: Exclude works that match input DOIs
+            if doi_clean and doi_clean in input_dois:
+                logger.debug(f"Excluding work with input DOI: {doi_clean}")
+                continue
+            
+            # Calculate enhanced relevance score
+            relevance_score, matched_keywords = calculate_enhanced_relevance(
+                work, normalized_keywords, title_analyzer
+            )
+            
+            if relevance_score > 0:
+                enriched = enrich_work_data(work)
+                enriched.update({
+                    'relevance_score': relevance_score,
+                    'matched_keywords': matched_keywords,
+                    'analysis_time': datetime.now().isoformat()
+                })
+                
+                # RULE 2: Handle duplicate titles
+                title_normalized = title.strip().lower()
+                
+                if title_normalized in title_to_work_map:
+                    # We have a duplicate title, compare DOIs
+                    existing_work = title_to_work_map[title_normalized]
+                    existing_doi = existing_work.get('doi', '').lower()
+                    current_doi = enriched.get('doi', '').lower()
+                    
+                    # Extract numeric parts from DOIs for comparison
+                    existing_numeric = extract_numeric_from_doi(existing_doi)
+                    current_numeric = extract_numeric_from_doi(current_doi)
+                    
+                    # Keep the work with higher numeric DOI (or higher score if DOIs equal)
+                    if current_numeric > existing_numeric:
+                        # Replace with current work
+                        title_to_work_map[title_normalized] = enriched
+                        logger.debug(f"Replacing duplicate title '{title[:50]}...' with higher DOI")
+                    elif current_numeric == existing_numeric:
+                        # If DOIs are equal, keep the one with higher relevance score
+                        if enriched['relevance_score'] > existing_work['relevance_score']:
+                            title_to_work_map[title_normalized] = enriched
+                            logger.debug(f"Replacing duplicate title '{title[:50]}...' with higher score")
+                    # else: keep existing work
+                else:
+                    # First occurrence of this title
+                    title_to_work_map[title_normalized] = enriched
+        
+        # Convert map back to list
+        analyzed = list(title_to_work_map.values())
+        
+        # Многокритериальная сортировка
+        analyzed.sort(key=lambda x: (
+            -x['relevance_score'],          # 1. Релевантность
+            -x.get('publication_year', 0),  # 2. Новизна
+            -x.get('cited_by_count', 0)     # 3. Цитирования (в пределах диапазона)
+        ))
+        
+        # Apply top_n limit
+        result = analyzed[:top_n]
+        
+        # Log summary statistics
+        logger.info(f"Found {len(result)} unique works after filtering")
+        logger.info(f"Removed {len(works) - len(analyzed)} works due to filters")
+        if len(analyzed) > len(result):
+            logger.info(f"Limited from {len(analyzed)} to {len(result)} works by top_n parameter")
+        
+        return result, total_count
+
+# ============================================================================
 # ФУНКЦИИ ЭКСПОРТА
 # ============================================================================
 
@@ -2635,7 +3095,8 @@ def create_progress_bar(current_step: int, total_steps: int):
         <span class="{'active' if current_step >= 1 else ''}">📥 Data Input</span>
         <span class="{'active' if current_step >= 2 else ''}">🔍 Analysis</span>
         <span class="{'active' if current_step >= 3 else ''}">🎯 Topic Selection</span>
-        <span class="{'active' if current_step >= 4 else ''}">📊 Results</span>
+        <span class="{'active' if current_step >= 4 else ''}">⚙️ Filters</span>
+        <span class="{'active' if current_step >= 5 else ''}">📊 Results</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -2643,10 +3104,14 @@ def create_back_button():
     """Создает кнопку возврата назад"""
     if st.session_state.current_step > 1:
         if st.button("← Back", key="back_button", use_container_width=False):
-            # При возврате на шаг 3, сбрасываем кэш результатов, чтобы фильтры применились заново
-            if st.session_state.current_step == 4:
-                if 'relevant_works' in st.session_state:
-                    del st.session_state['relevant_works']
+            # При возврате на шаг 4 или 5, сбрасываем кэш результатов, чтобы фильтры применились заново
+            if st.session_state.current_step in [4, 5]:
+                if 'filtered_works' in st.session_state:
+                    del st.session_state['filtered_works']
+                if 'filtered_total_count' in st.session_state:
+                    del st.session_state['filtered_total_count']
+                if 'filter_stats' in st.session_state:
+                    del st.session_state['filter_stats']
                 if 'top_keywords' in st.session_state:
                     del st.session_state['top_keywords']
             
@@ -2713,7 +3178,7 @@ def create_result_card_compact(work: dict, index: int):
     """, unsafe_allow_html=True)
 
 def create_topic_selection_ui():
-    """Интерфейс выбора темы с фильтрами"""
+    """Интерфейс выбора темы"""
     st.markdown("<h4>🎯 Select Research Topic</h4>", unsafe_allow_html=True)
     
     topics = st.session_state.topic_counter.most_common()
@@ -2750,109 +3215,198 @@ def create_topic_selection_ui():
                 
                 st.rerun()
     
-    # Фильтры для анализа (появляются после выбора темы)
+    # Кнопка продолжения
     if 'selected_topic' in st.session_state:
-        st.markdown("---")
-        st.markdown("<h4>⚙️ Analysis Filters</h4>", unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Фильтр по годам - ТОЛЬКО последние 3 года
-            current_year = datetime.now().year
-            years = list(range(current_year - 2, current_year + 1))  # Только 3 последних года
-            
-            selected_years = st.multiselect(
-                "Publication Years:",
-                options=years,
-                default=[current_year - 2, current_year - 1, current_year],
-                help="Select publication years (last 3 years only)"
-            )
-            
-            if not selected_years:
-                st.warning("Please select at least one year")
-                selected_years = [current_year - 2, current_year - 1, current_year]
-            
-            st.session_state.selected_years = selected_years
-        
-        with col2:
-            # Фильтр по цитированиям (обновленные опции)
-            citation_options = [
-                ("0 citations", "0"),
-                ("1 citation", "1"),
-                ("2 citations", "2"),
-                ("3 citations", "3"),
-                ("4 citations", "4"),
-                ("5 citations", "5"),
-                ("6 citations", "6"),
-                ("7 citations", "7"),
-                ("8 citations", "8"),
-                ("9 citations", "9"),
-                ("10 citations", "10"),
-                ("0-2 citations", "0-2"),
-                ("0-3 citations", "0-3"),
-                ("0-5 citations", "0-5"),
-                ("1-3 citations", "1-3"),
-                ("1-5 citations", "1-5"),
-                ("2-5 citations", "2-5"),
-                ("3-5 citations", "3-5"),
-                ("5-10 citations", "5-10"),
-                ("0-1,3-4 (multiple ranges)", "0-1,3-4"),
-                ("Custom...", "custom")
-            ]
-            
-            selected_option = st.selectbox(
-                "Citation Ranges:",
-                options=[opt[0] for opt in citation_options],
-                index=12,
-                help="Select citation ranges (0-10 only)"
-            )
-            
-            # Определяем выбранные диапазоны
-            if selected_option == "Custom...":
-                custom_input = st.text_input(
-                    "Enter custom ranges (e.g., '0-2,4,5-7'):",
-                    value="0-2",
-                    help="Enter comma-separated values or ranges (0-10 only)"
-                )
-                if custom_input:
-                    citation_ranges = parse_citation_ranges(custom_input)
-                    # Проверяем что все значения в пределах 0-10
-                    valid_ranges = []
-                    for start, end in citation_ranges:
-                        if 0 <= start <= 10 and 0 <= end <= 10:
-                            valid_ranges.append((start, end))
-                        else:
-                            st.warning(f"Range {start}-{end} is outside 0-10. It will be ignored.")
-                    
-                    if valid_ranges:
-                        st.session_state.selected_ranges = valid_ranges
-                        st.info(f"Selected ranges: {format_citation_ranges(valid_ranges)}")
-                    else:
-                        st.session_state.selected_ranges = [(0, 2)]
-                        st.warning("Using default range: 0-2")
-                else:
-                    st.session_state.selected_ranges = [(0, 2)]
-            else:
-                # Получаем строку диапазона из выбранной опции
-                range_str = next(opt[1] for opt in citation_options if opt[0] == selected_option)
-                citation_ranges = parse_citation_ranges(range_str)
-                st.session_state.selected_ranges = citation_ranges
-                st.info(f"Selected: {selected_option}")
-        
-        # Кнопка запуска анализа
         st.markdown("---")
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            if st.button("🔍 Start Deep Analysis", type="primary", use_container_width=True, key="start_analysis"):
-                # Сбрасываем кэш предыдущих результатов
-                if 'relevant_works' in st.session_state:
-                    del st.session_state['relevant_works']
-                if 'top_keywords' in st.session_state:
-                    del st.session_state['top_keywords']
-                
+            if st.button("⚙️ Configure Filters", type="primary", use_container_width=True, key="configure_filters"):
                 st.session_state.current_step = 4
                 st.rerun()
+
+# ============================================================================
+# НОВЫЙ ШАГ ДЛЯ ФИЛЬТРАЦИИ
+# ============================================================================
+
+def step_filters():
+    """Шаг 4: Настройка фильтров"""
+    create_back_button()
+    
+    st.markdown("""
+    <div class="step-card">
+        <h3 style="margin: 0; font-size: 1.3rem;">⚙️ Step 4: Configure Filters</h3>
+        <p style="margin: 5px 0; font-size: 0.9rem;">Set publication years and citation ranges for analysis.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if 'selected_topic_id' not in st.session_state:
+        st.error("❌ Topic not selected. Please go back to Step 3.")
+        return
+    
+    topic_id = st.session_state.selected_topic_id
+    topic_name = st.session_state.get('selected_topic', 'Selected Topic')
+    
+    # Получаем общее количество работ по теме
+    with st.spinner("Getting topic statistics..."):
+        total_works = get_topic_total_works_count(topic_id)
+    
+    if total_works == 0:
+        st.error(f"❌ No works found for topic: {topic_name}")
+        return
+    
+    st.markdown(f"""
+    <div class="filter-stats">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong>📊 Topic Statistics</strong><br>
+                <span style="font-size: 0.9rem; color: #666;">{topic_name}</span>
+            </div>
+            <div style="text-align: right;">
+                <span style="font-size: 1.5rem; font-weight: 700; color: #667eea;">{total_works:,}</span><br>
+                <span style="font-size: 0.8rem; color: #666;">total works</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Инициализация состояния фильтров
+    if 'selected_years' not in st.session_state:
+        current_year = datetime.now().year
+        st.session_state.selected_years = [current_year - 2, current_year - 1, current_year]
+    
+    if 'selected_citations' not in st.session_state:
+        st.session_state.selected_citations = [(0, 0), (1, 1), (2, 2)]
+    
+    # Секция фильтра по годам
+    st.markdown("<div class='filter-section'>", unsafe_allow_html=True)
+    st.markdown("<div class='filter-header'>📅 Publication Years</div>", unsafe_allow_html=True)
+    
+    current_year = datetime.now().year
+    years_options = list(range(current_year - 2, current_year + 1))  # Только последние 3 года
+    
+    # Отображаем чекбоксы для годов в 3 колонки
+    st.markdown("<div class='year-checkbox-container'>", unsafe_allow_html=True)
+    
+    cols = st.columns(3)
+    selected_years = []
+    
+    for idx, year in enumerate(years_options):
+        col_idx = idx % 3
+        with cols[col_idx]:
+            is_selected = year in st.session_state.selected_years
+            if st.checkbox(f"{year}", value=is_selected, key=f"year_{year}"):
+                selected_years.append(year)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Если ничего не выбрано, используем значения по умолчанию
+    if not selected_years:
+        selected_years = years_options
+        # Обновляем чекбоксы
+        for year in years_options:
+            st.session_state[f"year_{year}"] = True
+    
+    st.session_state.selected_years = selected_years
+    st.markdown(f"<div style='font-size: 0.85rem; color: #666; margin-top: 10px;'>Selected years: {', '.join(map(str, selected_years))}</div>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Секция фильтра по цитированиям
+    st.markdown("<div class='filter-section'>", unsafe_allow_html=True)
+    st.markdown("<div class='filter-header'>📈 Citation Counts</div>", unsafe_allow_html=True)
+    
+    citation_options = list(range(0, 11))  # 0-10
+    
+    # Первый ряд: 0-5
+    st.markdown("<div class='citation-checkbox-row'>", unsafe_allow_html=True)
+    cols1 = st.columns(6)
+    selected_citation_values = []
+    
+    for i in range(6):  # 0-5
+        with cols1[i]:
+            citation_value = i
+            is_selected = any(start <= citation_value <= end for start, end in st.session_state.selected_citations)
+            if st.checkbox(f"{citation_value}", value=is_selected, key=f"citation_{citation_value}"):
+                selected_citation_values.append(citation_value)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Второй ряд: 6-10 + "Select all"
+    st.markdown("<div class='citation-checkbox-row'>", unsafe_allow_html=True)
+    cols2 = st.columns(6)
+    
+    for i in range(5):  # 6-10
+        with cols2[i]:
+            citation_value = i + 6
+            is_selected = any(start <= citation_value <= end for start, end in st.session_state.selected_citations)
+            if st.checkbox(f"{citation_value}", value=is_selected, key=f"citation_{citation_value}"):
+                selected_citation_values.append(citation_value)
+    
+    # Колонка для "Select all"
+    with cols2[5]:
+        select_all = st.checkbox("Select all", value=len(selected_citation_values) == 11, key="citation_all")
+        if select_all:
+            selected_citation_values = list(range(0, 11))
+            # Обновляем все чекбоксы
+            for i in range(11):
+                st.session_state[f"citation_{i}"] = True
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Преобразуем выбранные значения в диапазоны
+    if selected_citation_values:
+        selected_citation_values.sort()
+        citation_ranges = []
+        start = selected_citation_values[0]
+        end = selected_citation_values[0]
+        
+        for i in range(1, len(selected_citation_values)):
+            if selected_citation_values[i] == end + 1:
+                end = selected_citation_values[i]
+            else:
+                citation_ranges.append((start, end))
+                start = selected_citation_values[i]
+                end = selected_citation_values[i]
+        
+        citation_ranges.append((start, end))
+        st.session_state.selected_citations = citation_ranges
+    
+    # Если ничего не выбрано, используем значения по умолчанию
+    if not selected_citation_values:
+        st.session_state.selected_citations = [(0, 2)]
+        # Обновляем чекбоксы
+        for i in range(3):
+            st.session_state[f"citation_{i}"] = True
+    
+    st.markdown(f"<div style='font-size: 0.85rem; color: #666; margin-top: 10px;'>Selected citation ranges: {format_citation_ranges(st.session_state.selected_citations)}</div>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Кнопка запуска анализа
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        if st.button("🔍 Start Filtered Analysis", type="primary", use_container_width=True, key="start_filtered_analysis"):
+            # Сбрасываем кэш предыдущих результатов
+            if 'filtered_works' in st.session_state:
+                del st.session_state['filtered_works']
+            if 'filtered_total_count' in st.session_state:
+                del st.session_state['filtered_total_count']
+            if 'filter_stats' in st.session_state:
+                del st.session_state['filter_stats']
+            if 'top_keywords' in st.session_state:
+                del st.session_state['top_keywords']
+            
+            # Сохраняем статистику фильтров для отображения
+            st.session_state.filter_stats = {
+                'total_works': total_works,
+                'selected_years': st.session_state.selected_years,
+                'selected_citations': st.session_state.selected_citations
+            }
+            
+            st.session_state.current_step = 5
+            st.rerun()
 
 # ============================================================================
 # ШАГИ МАСТЕР-ПРОЦЕССА
@@ -2998,13 +3552,13 @@ def step_topic_selection():
     create_topic_selection_ui()
 
 def step_results():
-    """Шаг 4: Результаты (компактный)"""
+    """Шаг 5: Результаты (обновленный с фильтрацией на стороне API)"""
     create_back_button()
     
     st.markdown("""
     <div class="step-card">
-        <h3 style="margin: 0; font-size: 1.3rem;">📊 Step 4: Analysis Results</h3>
-        <p style="margin: 5px 0; font-size: 0.9rem;">Fresh papers in your research area.</p>
+        <h3 style="margin: 0; font-size: 1.3rem;">📊 Step 5: Analysis Results</h3>
+        <p style="margin: 5px 0; font-size: 0.9rem;">Fresh papers in your research area with server-side filtering.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -3019,60 +3573,76 @@ def step_results():
         selected_years = [current_year - 2, current_year - 1, current_year]
         st.session_state.selected_years = selected_years
     
-    selected_ranges = st.session_state.get('selected_ranges', [])
-    if not selected_ranges:
-        selected_ranges = [(0, 2)]
-        st.session_state.selected_ranges = selected_ranges
+    selected_citations = st.session_state.get('selected_citations', [])
+    if not selected_citations:
+        selected_citations = [(0, 2)]
+        st.session_state.selected_citations = selected_citations
     
-    # Анализ работ по теме (только если еще не анализировали или фильтры изменились)
-    if 'relevant_works' not in st.session_state:
-        with st.spinner("Searching for fresh papers with enhanced algorithm..."):
+    # Показываем статистику фильтров
+    if 'filter_stats' in st.session_state:
+        stats = st.session_state.filter_stats
+        st.markdown(f"""
+        <div class="filter-stats">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong>📊 Filter Summary</strong><br>
+                    <span style="font-size: 0.9rem; color: #666;">
+                        Years: {', '.join(map(str, stats['selected_years']))} | 
+                        Citations: {format_citation_ranges(stats['selected_citations'])}
+                    </span>
+                </div>
+                <div style="text-align: right;">
+                    <span style="font-size: 1.2rem; font-weight: 700; color: #667eea;">{stats['total_works']:,}</span><br>
+                    <span style="font-size: 0.8rem; color: #666;">total works in topic</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Анализ работ по теме с фильтрацией на стороне API
+    if 'filtered_works' not in st.session_state:
+        with st.spinner("Searching for fresh papers with server-side filtering..."):
             # Получаем топ-10 ключевых слов
             top_keywords = [kw for kw, _ in st.session_state.keyword_counter.most_common(10)]
             
             # Сохраняем ключевые слова в сессии
             st.session_state.top_keywords = top_keywords
             
-            # Выполняем улучшенный анализ
-            relevant_works = analyze_works_for_topic(
-                st.session_state.selected_topic_id,
-                top_keywords,
-                max_citations=10,
-                max_works=2000,
-                top_n=100,
-                year_filter=selected_years,
-                citation_ranges=selected_ranges
+            # Выполняем улучшенный анализ с фильтрацией на стороне API
+            relevant_works, filtered_total_count = analyze_filtered_works_for_topic(
+                topic_id=st.session_state.selected_topic_id,
+                keywords=top_keywords,
+                selected_years=selected_years,
+                selected_citations=selected_citations,
+                max_works=5000,  # Увеличили лимит для полноты
+                top_n=100
             )
         
-        st.session_state.relevant_works = relevant_works
+        st.session_state.filtered_works = relevant_works
+        st.session_state.filtered_total_count = filtered_total_count
     else:
-        relevant_works = st.session_state.relevant_works
+        relevant_works = st.session_state.filtered_works
+        filtered_total_count = st.session_state.filtered_total_count
     
     # Статистика
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        create_metric_card_compact("Papers Found", len(relevant_works), "📄")
+        create_metric_card_compact("Filtered Works", f"{filtered_total_count:,}", "📄")
     with col2:
+        create_metric_card_compact("Papers Found", len(relevant_works), "🎯")
+    with col3:
         if relevant_works:
             avg_citations = np.mean([w.get('cited_by_count', 0) for w in relevant_works])
             create_metric_card_compact("Avg Citations", f"{avg_citations:.1f}", "📈")
         else:
             create_metric_card_compact("Avg Citations", "0", "📈")
-    with col3:
+    with col4:
         oa_count = sum(1 for w in relevant_works if w.get('is_oa'))
         create_metric_card_compact("Open Access", oa_count, "🔓")
-    with col4:
+    with col5:
         current_year = datetime.now().year
         recent_count = sum(1 for w in relevant_works if w.get('publication_year', 0) >= current_year - 2)
         create_metric_card_compact("Recent (≤2y)", recent_count, "🕒")
-    
-    # Показываем активные фильтры
-    st.markdown(f"""
-    <div style="margin: 10px 0; font-size: 0.85rem; color: #666;">
-        <strong>Active filters:</strong> Years: {', '.join(map(str, selected_years))} | 
-        Citation ranges: {format_citation_ranges(selected_ranges)}
-    </div>
-    """, unsafe_allow_html=True)
     
     if not relevant_works:
         # Добавляем отладочную информацию
@@ -3082,21 +3652,22 @@ def step_results():
             <strong>Debug info:</strong><br>
             - Topic ID: {st.session_state.get('selected_topic_id', 'Not set')}<br>
             - Years filter: {selected_years}<br>
-            - Citation ranges: {format_citation_ranges(selected_ranges)}<br>
-            - Total works fetched: {len(st.session_state.get('works_data', []))}<br>
+            - Citation ranges: {format_citation_ranges(selected_citations)}<br>
+            - Total works after filters: {filtered_total_count}<br>
             <br>
             This might happen when:<br>
             1. Current year selected with high citation threshold (papers might not have enough citations yet)<br>
             2. Very specific citation range selected<br>
             3. Topic has limited publications in selected years<br>
             <br>
-            Try adjusting your filters in Step 3.
+            Try adjusting your filters in Step 4.
         </div>
         """, unsafe_allow_html=True)
         
         # Для отладки также покажем логи
         logger.warning(f"No relevant works found for topic {st.session_state.get('selected_topic_id')}")
-        logger.warning(f"Filters: years={selected_years}, citation_ranges={selected_ranges}")
+        logger.warning(f"Filters: years={selected_years}, citation_ranges={selected_citations}")
+        logger.warning(f"Total works after filters: {filtered_total_count}")
     else:
         # Результаты в виде карточек
         st.markdown("<h4>🎯 Recommended Papers:</h4>", unsafe_allow_html=True)
@@ -3119,7 +3690,7 @@ def step_results():
                 'Relevance': work.get('relevance_score', 0),
                 'Year': work.get('publication_year', ''),
                 'Journal': work.get('journal_name', '')[:20],
-                'DOI': doi_url if doi_url else 'N/A',  # Исправлено: убираем markdown
+                'DOI': doi_url if doi_url else 'N/A',
                 'OA': '✅' if work.get('is_oa') else '❌',
                 'Authors': ', '.join(work.get('authors', [])[:2])
             })
@@ -3197,12 +3768,32 @@ def step_results():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             if st.button("🔄 Start New Analysis", use_container_width=True):
-                for key in ['relevant_works', 'selected_topic', 'selected_topic_id', 
-                          'selected_years', 'selected_ranges', 'top_keywords',
-                          'works_data', 'topic_counter', 'keyword_counter',
-                          'successful', 'failed', 'dois']:
+                # Очищаем все данные сессии
+                keys_to_clear = [
+                    'filtered_works', 'filtered_total_count', 'filter_stats',
+                    'selected_topic', 'selected_topic_id', 'selected_years', 
+                    'selected_citations', 'top_keywords', 'works_data', 
+                    'topic_counter', 'keyword_counter', 'successful', 
+                    'failed', 'dois'
+                ]
+                
+                for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
+                
+                # Сбрасываем все чекбоксы
+                current_year = datetime.now().year
+                for year in range(current_year - 2, current_year + 1):
+                    if f"year_{year}" in st.session_state:
+                        del st.session_state[f"year_{year}"]
+                
+                for i in range(11):
+                    if f"citation_{i}" in st.session_state:
+                        del st.session_state[f"citation_{i}"]
+                
+                if "citation_all" in st.session_state:
+                    del st.session_state["citation_all"]
+                
                 st.session_state.current_step = 1
                 st.rerun()
 
@@ -3221,12 +3812,12 @@ def main():
     st.markdown("""
     <h1 class="main-header">🔬 CTA Article Recommender Pro</h1>
     <p style="font-size: 1rem; color: #666; margin-bottom: 1.5rem;">
-    Discover fresh papers using AI-powered analysis
+    Discover fresh papers using AI-powered analysis with server-side filtering
     </p>
     """, unsafe_allow_html=True)
     
-    # Прогресс бар
-    create_progress_bar(st.session_state.current_step, 4)
+    # Прогресс бар (обновлен для 5 шагов)
+    create_progress_bar(st.session_state.current_step, 5)
     
     # Очистка старого кэша
     clear_old_cache()
@@ -3239,6 +3830,8 @@ def main():
     elif st.session_state.current_step == 3:
         step_topic_selection()
     elif st.session_state.current_step == 4:
+        step_filters()
+    elif st.session_state.current_step == 5:
         step_results()
     
     # Футер
@@ -3246,10 +3839,9 @@ def main():
     st.markdown("""
     <div style="text-align: center; color: #888; font-size: 0.8rem; margin-top: 1rem;">
         <p>© CTA, https://chimicatechnoacta.ru / developed by daM©</p>
+        <p style="font-size: 0.7rem; color: #aaa;">v2.0 with server-side filtering</p>
     </div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
-
-
