@@ -3719,6 +3719,41 @@ def create_metric_card_compact(title: str, value, icon: str = "📊"):
 def create_result_card_compact(work: dict, index: int):
     """Создает компактную карточку результата с химическими маркерами"""
     import html
+    import re
+    
+    def safe_html(text: str) -> str:
+        """Экранирует HTML, оставляя только безопасные теги"""
+        if not text:
+            return ""
+        
+        # Сохраняем безопасные теги
+        replacements = {
+            '<sub>': '___SUB_OPEN___',
+            '</sub>': '___SUB_CLOSE___',
+            '<sup>': '___SUP_OPEN___',
+            '</sup>': '___SUP_CLOSE___',
+            '<i>': '___I_OPEN___',
+            '</i>': '___I_CLOSE___',
+            '<b>': '___B_OPEN___',
+            '</b>': '___B_CLOSE___',
+            '<em>': '___EM_OPEN___',
+            '</em>': '___EM_CLOSE___',
+            '<strong>': '___STRONG_OPEN___',
+            '</strong>': '___STRONG_CLOSE___'
+        }
+        
+        # Заменяем безопасные теги на маркеры
+        for original, replacement in replacements.items():
+            text = text.replace(original, replacement)
+        
+        # Экранируем все HTML
+        text = html.escape(text)
+        
+        # Восстанавливаем безопасные теги
+        for original, replacement in replacements.items():
+            text = text.replace(replacement, original)
+        
+        return text
     
     citation_count = work.get('cited_by_count', 0)
     
@@ -3746,21 +3781,19 @@ def create_result_card_compact(work: dict, index: int):
     oa_badge = '🔓' if work.get('is_oa') else '🔒'
     doi_url = work.get('doi_url', '')
     
-    # Экранируем HTML в заголовке и других полях
-    title = work.get('title', 'No title')
-    title_escaped = html.escape(title)
+    # Используем безопасный HTML
+    title = safe_html(work.get('title', 'No title'))
     
     authors_list = work.get('authors', [])
-    authors_escaped = []
+    authors_safe = []
     for author in authors_list[:2]:
-        authors_escaped.append(html.escape(author))
+        authors_safe.append(safe_html(author))
     
-    authors = ', '.join(authors_escaped)
+    authors = ', '.join(authors_safe)
     if len(authors_list) > 2:
         authors += ' et al.'
     
-    journal_name = work.get('journal_name', '')
-    journal_escaped = html.escape(journal_name)[:30]
+    journal_name = safe_html(work.get('journal_name', ''))[:30]
     year = work.get('publication_year', '')
     relevance_score = work.get('relevance_score', 0)
     
@@ -3779,10 +3812,10 @@ def create_result_card_compact(work: dict, index: int):
             </div>
             <span style="color: #666; font-size: 0.8rem;">{year}</span>
         </div>
-        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title_escaped}</div>
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title}</div>
         <div style="color: #555; font-size: 0.85rem; margin-bottom: 5px;">👤 {authors}</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-            <span>{oa_badge} {journal_escaped}</span>
+            <span>{oa_badge} {journal_name}</span>
             <a href="{doi_url}" target="_blank" style="color: #2196F3; text-decoration: none; font-size: 0.85rem;">
                 🔗 View Article
             </a>
@@ -4466,6 +4499,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
