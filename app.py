@@ -2606,6 +2606,7 @@ def analyze_filtered_works_for_topic(
             )
             
             # Затем обновите enriched:
+            enriched = enrich_work_data(work)
             enriched.update({
                 'relevance_score': relevance_score,
                 'matched_keywords': matched_keywords,
@@ -4449,6 +4450,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
