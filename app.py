@@ -1912,8 +1912,8 @@ class EnhancedKeywordAnalyzer:
 
 def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float], 
                                  analyzer: TitleKeywordsAnalyzer,
-                                 common_bigrams: Set[str] = None,
-                                 common_trigrams: Set[str] = None) -> Tuple[float, List[str]]:
+                                 common_bigrams: Optional[Set[str]] = None,
+                                 common_trigrams: Optional[Set[str]] = None) -> Tuple[float, List[str]]:
     """Расчет релевантности с учетом семантической близости и n-грамм"""
     
     title = work.get('title', '').lower()
@@ -2129,7 +2129,6 @@ def analyze_works_for_topic(
                 logger.debug(f"Excluding work with input DOI: {doi_clean}")
                 continue
             
-            # Calculate enhanced relevance score with n-grams
             relevance_score, matched_keywords = calculate_enhanced_relevance(
                 work, normalized_keywords, title_analyzer,
                 keyword_analyzer.common_bigrams, keyword_analyzer.common_trigrams
@@ -2300,10 +2299,9 @@ def analyze_filtered_works_for_topic(
                 logger.debug(f"Excluding work with input DOI: {doi_clean}")
                 continue
 
-            # Calculate enhanced relevance score with n-grams
             relevance_score, matched_keywords = calculate_enhanced_relevance(
                 work, normalized_keywords, title_analyzer,
-                self.common_bigrams, self.common_trigrams
+                keyword_analyzer.common_bigrams, keyword_analyzer.common_trigrams
             )
             
             if relevance_score > 0:
@@ -4065,6 +4063,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
