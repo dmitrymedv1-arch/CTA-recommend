@@ -1953,15 +1953,35 @@ def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float],
         
         # Определяем тип ключевого слова
         word_count = len(keyword_lower.split())
-        
+
         if word_count == 1:  # Униграмма
             keyword_base = analyzer._get_base_form(keyword_lower)
             
-            # Проверяем точное совпадение в заголовке
-            if keyword_lower in title:
+            # 1. Проверяем точное совпадение в заголовке (целое слово)
+            # Используем регулярное выражение для поиска целых слов
+            pattern = r'\b' + re.escape(keyword_lower) + r'\b'
+            if re.search(pattern, title):
                 score += weight * 3.0  # Высокий вес для точного совпадения
                 if keyword not in matched_keywords:
                     matched_keywords.append(keyword)
+            
+            # 2. Проверяем лемматизированные формы
+            else:
+                found_lemma_match = False
+                for lemma in all_title_lemmas:
+                    if analyzer._are_similar_lemmas(keyword_base, lemma):
+                        score += weight * 2.0  # Средний вес для семантической близости
+                        if f"{keyword}~{lemma}" not in matched_keywords:
+                            matched_keywords.append(f"{keyword}~{lemma}")
+                        found_lemma_match = True
+                        break
+                
+                # 3. Если не нашли лемму, проверяем точное совпадение в аннотации
+                if not found_lemma_match and abstract:
+                    if re.search(pattern, abstract):
+                        score += weight * 1.0  # Меньший вес для аннотации
+                        if f"{keyword}*" not in matched_keywords:
+                            matched_keywords.append(f"{keyword}*")
             
             # Проверяем точное совпадение в аннотации
             elif abstract and keyword_lower in abstract:
@@ -2085,9 +2105,22 @@ def analyze_works_for_topic(
     
     # Преобразуем ключевые слова в взвешенный словарь
     keywords_lower = [kw.lower() for kw in keywords]
-    weighted_keywords = keyword_analyzer.extract_weighted_keywords(keywords_lower)
     
-    # Добавляем исходные ключевые слова с весом
+    artificial_title = " ".join(keywords_lower[:10])  # Берем первые 10 ключевых слов для анализа
+    titles_for_analysis = [artificial_title]
+
+    weighted_keywords = keyword_analyzer.extract_weighted_keywords(titles_for_analysis)
+
+    for keyword in keywords:
+        keyword_lower = keyword.lower()
+        keyword_base = title_analyzer._get_base_form(keyword_lower)
+        if keyword_base:
+            weighted_keywords[keyword_base] = weighted_keywords.get(keyword_base, 0) + 2.0
+
+        word_count = len(keyword_lower.split())
+        if word_count > 1:  # Для n-грамм
+            weighted_keywords[keyword_lower] = weighted_keywords.get(keyword_lower, 0) + (2.0 * word_count)
+
     for keyword in keywords:
         keyword_lower = keyword.lower()
         keyword_base = title_analyzer._get_base_form(keyword_lower)
@@ -2260,9 +2293,22 @@ def analyze_filtered_works_for_topic(
     
     # Преобразуем ключевые слова в взвешенный словарь
     keywords_lower = [kw.lower() for kw in keywords]
-    weighted_keywords = keyword_analyzer.extract_weighted_keywords(keywords_lower)
-    
-    # Добавляем исходные ключевые слова с весом
+
+    artificial_title = " ".join(keywords_lower[:10])
+    titles_for_analysis = [artificial_title]
+
+    weighted_keywords = keyword_analyzer.extract_weighted_keywords(titles_for_analysis)
+
+    for keyword in keywords:
+        keyword_lower = keyword.lower()
+        keyword_base = title_analyzer._get_base_form(keyword_lower)
+        if keyword_base:
+            weighted_keywords[keyword_base] = weighted_keywords.get(keyword_base, 0) + 2.0
+
+        word_count = len(keyword_lower.split())
+        if word_count > 1:
+            weighted_keywords[keyword_lower] = weighted_keywords.get(keyword_lower, 0) + (2.0 * word_count)
+
     for keyword in keywords:
         keyword_lower = keyword.lower()
         keyword_base = title_analyzer._get_base_form(keyword_lower)
@@ -4063,5 +4109,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
