@@ -1802,6 +1802,9 @@ def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float],
         score += len(compound_words_list) * 0.5
     
     return score, matched_keywords
+    normalized_score = min(score * 2, 10)
+    
+    return normalized_score, matched_keywords
 
 def passes_filters(work: dict, year_filter: List[int], 
                    citation_ranges: List[Tuple[int, int]]) -> bool:
@@ -3849,3 +3852,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
