@@ -3718,6 +3718,8 @@ def create_metric_card_compact(title: str, value, icon: str = "📊"):
 
 def create_result_card_compact(work: dict, index: int):
     """Создает компактную карточку результата с химическими маркерами"""
+    import html
+    
     citation_count = work.get('cited_by_count', 0)
     
     # Определяем цвет баджа цитирования
@@ -3743,10 +3745,24 @@ def create_result_card_compact(work: dict, index: int):
     
     oa_badge = '🔓' if work.get('is_oa') else '🔒'
     doi_url = work.get('doi_url', '')
+    
+    # Экранируем HTML в заголовке и других полях
     title = work.get('title', 'No title')
-    authors = ', '.join(work.get('authors', [])[:2])
-    if len(work.get('authors', [])) > 2:
+    title_escaped = html.escape(title)
+    
+    authors_list = work.get('authors', [])
+    authors_escaped = []
+    for author in authors_list[:2]:
+        authors_escaped.append(html.escape(author))
+    
+    authors = ', '.join(authors_escaped)
+    if len(authors_list) > 2:
         authors += ' et al.'
+    
+    journal_name = work.get('journal_name', '')
+    journal_escaped = html.escape(journal_name)[:30]
+    year = work.get('publication_year', '')
+    relevance_score = work.get('relevance_score', 0)
     
     st.markdown(f"""
     <div class="result-card">
@@ -3757,16 +3773,16 @@ def create_result_card_compact(work: dict, index: int):
                     {badge_text}
                 </span>
                 <span style="background: #e3f2fd; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 5px;">
-                    Score: {work.get('relevance_score', 0)}
+                    Score: {relevance_score}
                 </span>
                 {' '.join(chemical_markers)}
             </div>
-            <span style="color: #666; font-size: 0.8rem;">{work.get('publication_year', '')}</span>
+            <span style="color: #666; font-size: 0.8rem;">{year}</span>
         </div>
-        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title}</div>
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title_escaped}</div>
         <div style="color: #555; font-size: 0.85rem; margin-bottom: 5px;">👤 {authors}</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-            <span>{oa_badge} {work.get('journal_name', '')[:30]}</span>
+            <span>{oa_badge} {journal_escaped}</span>
             <a href="{doi_url}" target="_blank" style="color: #2196F3; text-decoration: none; font-size: 0.85rem;">
                 🔗 View Article
             </a>
@@ -4450,6 +4466,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
