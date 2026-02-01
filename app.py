@@ -3344,12 +3344,16 @@ def step_filters():
     
     # Колонка для "Select all"
     with cols2[5]:
-        select_all = st.checkbox("Select all", value=len(selected_citation_values) == 11, key="citation_all")
+        # Используем ключ для select all и обрабатываем логику позже
+        select_all = st.checkbox("Select all", key="citation_all")
+        
+        # Если выбран select_all, то выбираем все значения
         if select_all:
             selected_citation_values = list(range(0, 11))
-            # Обновляем все чекбоксы
-            for i in range(11):
-                st.session_state[f"citation_{i}"] = True
+        # Если select_all снят и выбраны все значения, снимаем select_all
+        elif len(selected_citation_values) == 11:
+            # Обновляем состояние чекбокса через callback
+            st.session_state.citation_all = True
     
     st.markdown("</div>", unsafe_allow_html=True)
     
@@ -3845,3 +3849,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
