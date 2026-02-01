@@ -36,7 +36,6 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import Image
 import xlsxwriter
 from PIL import Image as PILImage
-from collections import Counter
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -1534,55 +1533,6 @@ class TitleKeywordsAnalyzer:
             'simulation', 'solution', 'specification', 'synthesis', 'transformation',
             'treatment', 'utilization', 'validation', 'verification'
         }
-
-    def extract_ngrams(self, text: str, n: int = 2) -> List[str]:
-        """
-        Извлекает n-граммы из текста.
-        
-        Args:
-            text: Текст для обработки
-            n: Размер n-граммы (2 для биграмм, 3 для триграмм)
-        
-        Returns:
-            Список n-грамм
-        """
-        if not text or text in ['Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
-            return []
-        
-        # Приводим к нижнему регистру и очищаем
-        text = text.lower()
-        text = re.sub(r'[^a-zA-Z\s-]', ' ', text)  # Удаляем все кроме букв, пробелов и дефисов
-        text = re.sub(r'\s+', ' ', text).strip()  # Убираем лишние пробелы
-        
-        # Разбиваем на токены
-        tokens = text.split()
-        
-        # Убираем стоп-слова из токенов
-        filtered_tokens = []
-        for token in tokens:
-            # Пропускаем стоп-слова и очень короткие слова
-            if token not in self.title_analyzer.stop_words and len(token) > 2:
-                # Проверяем, не является ли слово частью составного слова через дефис
-                if '-' in token:
-                    # Разбиваем составные слова и проверяем каждую часть
-                    parts = token.split('-')
-                    valid_parts = [part for part in parts if part not in self.title_analyzer.stop_words and len(part) > 2]
-                    if len(valid_parts) >= 2:
-                        # Если есть хотя бы 2 валидные части, оставляем как составное слово
-                        filtered_tokens.append(token)
-                else:
-                    filtered_tokens.append(token)
-        
-        if len(filtered_tokens) < n:
-            return []
-        
-        # Генерируем n-граммы
-        ngrams = []
-        for i in range(len(filtered_tokens) - n + 1):
-            ngram = ' '.join(filtered_tokens[i:i+n])
-            ngrams.append(ngram)
-        
-        return ngrams
     
     def _get_lemma(self, word: str) -> str:
         """Get word lemma considering special rules"""
@@ -1767,162 +1717,41 @@ class EnhancedKeywordAnalyzer:
     def __init__(self):
         self.title_analyzer = TitleKeywordsAnalyzer()
         
-        # Веса для разных типов слов и n-грамм
+        # Веса для разных типов слов
         self.weights = {
-            'unigram': 1.0,      # Одно слово
-            'bigram': 2.5,       # 2 слова
-            'trigram': 4.0,      # 3 слова
-            'compound': 1.5,     # Через дефис
-            'scientific': 0.7    # Научные стоп-слова
+            'content': 1.0,
+            'compound': 1.5,  # Составные слова важнее
+            'scientific': 0.7  # Научные стоп-слова менее важны
         }
-        
-        # Часто встречающиеся биграммы в научных статьях
-        self.common_bigrams = {
-            'systematic review', 'literature review', 'scoping review',
-            'machine learning', 'deep learning', 'reinforcement learning',
-            'artificial intelligence', 'neural network', 'support vector',
-            'random forest', 'natural language', 'computer vision',
-            'climate change', 'global warming', 'renewable energy',
-            'carbon dioxide', 'greenhouse gas', 'solar energy',
-            'clinical trial', 'case study', 'field study',
-            'data analysis', 'statistical analysis', 'regression analysis',
-            'research question', 'research gap', 'knowledge gap',
-            'systematic mapping', 'narrative review', 'integrative review',
-            'critical review', 'thematic analysis', 'content analysis',
-            'discourse analysis', 'grounded theory', 'mixed methods',
-            'qualitative research', 'quantitative research', 'empirical study',
-            'experimental design', 'quasi experimental', 'longitudinal study',
-            'cross sectional', 'case control', 'cohort study',
-            'meta analysis', 'network analysis', 'sentiment analysis',
-            'text mining', 'data mining', 'knowledge discovery',
-            'pattern recognition', 'image processing', 'signal processing',
-            'feature extraction', 'dimensionality reduction', 'clustering analysis',
-            'classification algorithm', 'regression model', 'time series',
-            'monte carlo', 'markov chain', 'bayesian inference',
-            'fuzzy logic', 'genetic algorithm', 'particle swarm',
-            'ant colony', 'simulated annealing', 'decision tree',
-            'gradient boosting', 'principal component', 'independent component',
-            'factor analysis', 'cluster analysis', 'discriminant analysis',
-            'anova test', 't test', 'chi square',
-            'correlation analysis', 'regression coefficient', 'standard deviation',
-            'confidence interval', 'p value', 'effect size',
-            'power analysis', 'sample size', 'statistical significance',
-            'research design', 'theoretical framework', 'conceptual framework',
-            'research methodology', 'data collection', 'data processing',
-            'data interpretation', 'research findings', 'research implications',
-            'practical implications', 'theoretical contributions', 'future research',
-            'research limitations', 'study limitations', 'methodological limitations',
-            'ethical considerations', 'informed consent', 'research ethics',
-            'open access', 'peer review', 'scientific publication',
-            'impact factor', 'citation count', 'bibliometric analysis',
-            'science mapping', 'knowledge domain', 'intellectual structure',
-            'research trend', 'emerging trend', 'hot topic',
-            'research frontier', 'cutting edge', 'state art'
-        }
-        
-        # Часто встречающиеся триграммы в научных статьях
-        self.common_trigrams = {
-            'systematic literature review', 'artificial neural network',
-            'convolutional neural network', 'recurrent neural network',
-            'deep neural network', 'support vector machine',
-            'random forest classifier', 'natural language processing',
-            'computer vision system', 'climate change adaptation',
-            'renewable energy source', 'greenhouse gas emission',
-            'clinical trial study', 'data analysis technique',
-            'research question formulation', 'knowledge gap identification',
-            'systematic mapping study', 'thematic analysis approach',
-            'content analysis method', 'discourse analysis framework',
-            'grounded theory methodology', 'mixed methods research',
-            'qualitative research design', 'quantitative research method',
-            'empirical study design', 'experimental design study',
-            'quasi experimental design', 'longitudinal study design',
-            'cross sectional study', 'case control study',
-            'cohort study design', 'meta analysis review',
-            'network analysis method', 'sentiment analysis tool',
-            'text mining technique', 'data mining algorithm',
-            'knowledge discovery process', 'pattern recognition system',
-            'image processing technique', 'signal processing method',
-            'feature extraction algorithm', 'dimensionality reduction technique',
-            'clustering analysis method', 'classification algorithm performance',
-            'regression model analysis', 'time series analysis',
-            'monte carlo simulation', 'markov chain model',
-            'bayesian inference method', 'fuzzy logic system',
-            'genetic algorithm optimization', 'particle swarm optimization',
-            'ant colony optimization', 'simulated annealing algorithm',
-            'decision tree classifier', 'gradient boosting algorithm',
-            'principal component analysis', 'independent component analysis',
-            'factor analysis method', 'cluster analysis technique',
-            'discriminant analysis method', 'anova test results',
-            't test analysis', 'chi square test',
-            'correlation analysis results', 'regression coefficient estimation',
-            'standard deviation calculation', 'confidence interval estimation',
-            'p value significance', 'effect size calculation',
-            'power analysis calculation', 'sample size determination',
-            'statistical significance level', 'research design methodology',
-            'theoretical framework development', 'conceptual framework model',
-            'research methodology section', 'data collection procedure',
-            'data processing technique', 'data interpretation method',
-            'research findings presentation', 'research implications discussion',
-            'practical implications section', 'theoretical contributions paragraph',
-            'future research directions', 'research limitations section',
-            'study limitations paragraph', 'methodological limitations discussion',
-            'ethical considerations section', 'informed consent form',
-            'research ethics approval', 'open access publication',
-            'peer review process', 'scientific publication outlet',
-            'impact factor journal', 'citation count analysis',
-            'bibliometric analysis study', 'science mapping visualization',
-            'knowledge domain analysis', 'intellectual structure mapping',
-            'research trend analysis', 'emerging trend identification',
-            'hot topic detection', 'research frontier exploration',
-            'cutting edge technology', 'state art review'
-        }
-
+    
     def extract_weighted_keywords(self, titles: List[str]) -> Dict[str, float]:
-        """Извлечение ключевых слов с весами, включая n-граммы"""
+        """Извлечение ключевых слов с весами"""
         weighted_counter = Counter()
         
         for title in titles:
             if not title:
                 continue
-            
-            # 1. Извлекаем униграммы (отдельные слова)
+                
+            # Извлекаем все типы слов
             content_words = self.title_analyzer.preprocess_content_words(title)
+            compound_words = self.title_analyzer.extract_compound_words(title)
+            
+            # Учитываем веса
             for word_info in content_words:
                 lemma = word_info['lemma']
-                if lemma and len(lemma) > 2:
-                    weighted_counter[lemma] += self.weights['unigram']
+                if lemma:
+                    weighted_counter[lemma] += self.weights['content']
             
-            # 2. Извлекаем составные слова через дефис
-            compound_words = self.title_analyzer.extract_compound_words(title)
             for word_info in compound_words:
                 lemma = word_info['lemma']
                 if lemma:
                     weighted_counter[lemma] += self.weights['compound']
-            
-            # 3. Извлекаем биграммы (2 слова)
-            bigrams = self.extract_ngrams(title, n=2)
-            for bigram in bigrams:
-                # Проверяем, является ли биграмма распространенной
-                if bigram in self.common_bigrams:
-                    weighted_counter[bigram] += self.weights['bigram'] * 1.5  # Бонус за распространенность
-                else:
-                    weighted_counter[bigram] += self.weights['bigram']
-            
-            # 4. Извлекаем триграммы (3 слова)
-            trigrams = self.extract_ngrams(title, n=3)
-            for trigram in trigrams:
-                # Проверяем, является ли триграмма распространенной
-                if trigram in self.common_trigrams:
-                    weighted_counter[trigram] += self.weights['trigram'] * 1.5  # Бонус за распространенность
-                else:
-                    weighted_counter[trigram] += self.weights['trigram']
         
         return weighted_counter
 
 def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float], 
-                                 analyzer: TitleKeywordsAnalyzer,
-                                 keyword_analyzer: EnhancedKeywordAnalyzer) -> Tuple[float, List[str]]:
-    """Расчет релевантности с учетом семантической близости и n-грамм"""
+                                 analyzer: TitleKeywordsAnalyzer) -> Tuple[float, List[str]]:
+    """Расчет релевантности с учетом семантической близости"""
     
     title = work.get('title', '').lower()
     abstract = work.get('abstract', '').lower()
@@ -1933,108 +1762,44 @@ def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float],
     score = 0.0
     matched_keywords = []
     
-    # Извлекаем слова и n-граммы из заголовка анализируемой работы
+    # Извлекаем слова из заголовка анализируемой работы
     title_words = analyzer.preprocess_content_words(title)
     compound_words = analyzer.extract_compound_words(title)
-    
-    # Извлекаем n-граммы из заголовка
-    title_bigrams = keyword_analyzer.extract_ngrams(title, n=2)
-    title_trigrams = keyword_analyzer.extract_ngrams(title, n=3)
     
     title_lemmas = {w['lemma'] for w in title_words}
     compound_lemmas = {w['lemma'] for w in compound_words}
     all_title_lemmas = title_lemmas.union(compound_lemmas)
-    all_title_bigrams = set(title_bigrams)
-    all_title_trigrams = set(title_trigrams)
     
     # Проверяем каждое ключевое слово
     for keyword, weight in keywords.items():
         keyword_lower = keyword.lower()
+        keyword_base = analyzer._get_base_form(keyword_lower)
         
-        # Определяем тип ключевого слова
-        word_count = len(keyword_lower.split())
-
-        if word_count == 1:  # Униграмма
-            keyword_base = analyzer._get_base_form(keyword_lower)
-            
-            # 1. Проверяем точное совпадение в заголовке (целое слово)
-            # Используем регулярное выражение для поиска целых слов
-            pattern = r'\b' + re.escape(keyword_lower) + r'\b'
-            if re.search(pattern, title):
-                score += weight * 3.0  # Высокий вес для точного совпадения
-                if keyword not in matched_keywords:
-                    matched_keywords.append(keyword)
-            
-            # 2. Проверяем лемматизированные формы
-            else:
-                found_lemma_match = False
-                for lemma in all_title_lemmas:
-                    if analyzer._are_similar_lemmas(keyword_base, lemma):
-                        score += weight * 2.0  # Средний вес для семантической близости
-                        if f"{keyword}~{lemma}" not in matched_keywords:
-                            matched_keywords.append(f"{keyword}~{lemma}")
-                        found_lemma_match = True
-                        break
-                
-                # 3. Если не нашли лемму, проверяем точное совпадение в аннотации
-                if not found_lemma_match and abstract:
-                    if re.search(pattern, abstract):
-                        score += weight * 1.0  # Меньший вес для аннотации
-                        if f"{keyword}*" not in matched_keywords:
-                            matched_keywords.append(f"{keyword}*")
-            
-            # Проверяем точное совпадение в аннотации
-            elif abstract and keyword_lower in abstract:
-                score += weight * 1.0  # Меньший вес для аннотации
-                if f"{keyword}*" not in matched_keywords:
-                    matched_keywords.append(f"{keyword}*")
-            
-            else:
-                # Проверяем лемматизированные формы в заголовке
-                for lemma in all_title_lemmas:
-                    if analyzer._are_similar_lemmas(keyword_base, lemma):
-                        score += weight * 2.0  # Средний вес для семантической близости
-                        if f"{keyword}~{lemma}" not in matched_keywords:
-                            matched_keywords.append(f"{keyword}~{lemma}")
-                        break
+        # Проверяем точное совпадение в заголовке
+        if keyword_lower in title:
+            score += weight * 3.0  # Высокий вес для точного совпадения
+            if keyword not in matched_keywords:
+                matched_keywords.append(keyword)
         
-        elif word_count == 2:  # Биграмма
-            # Проверяем точное совпадение биграммы в заголовке
-            if keyword_lower in title or keyword_lower in all_title_bigrams:
-                score += weight * 4.0  # Еще выше вес для точного совпадения биграмм
-                if keyword not in matched_keywords:
-                    matched_keywords.append(f"🔗{keyword}")
-            
-            # Проверяем точное совпадение в аннотации
-            elif abstract and keyword_lower in abstract:
-                score += weight * 2.0  # Более высокий вес для биграмм в аннотации
-                if f"{keyword}*" not in matched_keywords:
-                    matched_keywords.append(f"🔗{keyword}*")
+        # Проверяем точное совпадение в аннотации
+        elif abstract and keyword_lower in abstract:
+            score += weight * 1.0  # Меньший вес для аннотации
+            if f"{keyword}*" not in matched_keywords:
+                matched_keywords.append(f"{keyword}*")
         
-        elif word_count == 3:  # Триграмма
-            # Проверяем точное совпадение триграммы в заголовке
-            if keyword_lower in title or keyword_lower in all_title_trigrams:
-                score += weight * 5.0  # Самый высокий вес для триграмм
-                if keyword not in matched_keywords:
-                    matched_keywords.append(f"🔗🔗{keyword}")
-            
-            # Проверяем точное совпадение в аннотации
-            elif abstract and keyword_lower in abstract:
-                score += weight * 3.0  # Высокий вес для триграмм в аннотации
-                if f"{keyword}*" not in matched_keywords:
-                    matched_keywords.append(f"🔗🔗{keyword}*")
+        else:
+            # Проверяем лемматизированные формы в заголовке
+            for lemma in all_title_lemmas:
+                if analyzer._are_similar_lemmas(keyword_base, lemma):
+                    score += weight * 2.0  # Средний вес для семантической близости
+                    if f"{keyword}~{lemma}" not in matched_keywords:
+                        matched_keywords.append(f"{keyword}~{lemma}")
+                    break
     
     # Дополнительные бонусы
     compound_words_list = analyzer.extract_compound_words(title)
     if compound_words_list:
         score += len(compound_words_list) * 0.5
-    
-    # Бонус за наличие n-грамм в заголовке
-    if title_bigrams:
-        score += len(title_bigrams) * 0.8
-    
-    if title_trigrams:
-        score += len(title_trigrams) * 1.2
     
     return score, matched_keywords
 
@@ -2105,22 +1870,9 @@ def analyze_works_for_topic(
     
     # Преобразуем ключевые слова в взвешенный словарь
     keywords_lower = [kw.lower() for kw in keywords]
+    weighted_keywords = keyword_analyzer.extract_weighted_keywords(keywords_lower)
     
-    artificial_title = " ".join(keywords_lower[:10])  # Берем первые 10 ключевых слов для анализа
-    titles_for_analysis = [artificial_title]
-
-    weighted_keywords = keyword_analyzer.extract_weighted_keywords(titles_for_analysis)
-
-    for keyword in keywords:
-        keyword_lower = keyword.lower()
-        keyword_base = title_analyzer._get_base_form(keyword_lower)
-        if keyword_base:
-            weighted_keywords[keyword_base] = weighted_keywords.get(keyword_base, 0) + 2.0
-
-        word_count = len(keyword_lower.split())
-        if word_count > 1:  # Для n-грамм
-            weighted_keywords[keyword_lower] = weighted_keywords.get(keyword_lower, 0) + (2.0 * word_count)
-
+    # Добавляем исходные ключевые слова с весом
     for keyword in keywords:
         keyword_lower = keyword.lower()
         keyword_base = title_analyzer._get_base_form(keyword_lower)
@@ -2163,8 +1915,9 @@ def analyze_works_for_topic(
                 logger.debug(f"Excluding work with input DOI: {doi_clean}")
                 continue
             
+            # Calculate enhanced relevance score
             relevance_score, matched_keywords = calculate_enhanced_relevance(
-                work, normalized_keywords, title_analyzer, keyword_analyzer
+                work, normalized_keywords, title_analyzer
             )
             
             if relevance_score > 0:
@@ -2293,22 +2046,9 @@ def analyze_filtered_works_for_topic(
     
     # Преобразуем ключевые слова в взвешенный словарь
     keywords_lower = [kw.lower() for kw in keywords]
-
-    artificial_title = " ".join(keywords_lower[:10])
-    titles_for_analysis = [artificial_title]
-
-    weighted_keywords = keyword_analyzer.extract_weighted_keywords(titles_for_analysis)
-
-    for keyword in keywords:
-        keyword_lower = keyword.lower()
-        keyword_base = title_analyzer._get_base_form(keyword_lower)
-        if keyword_base:
-            weighted_keywords[keyword_base] = weighted_keywords.get(keyword_base, 0) + 2.0
-
-        word_count = len(keyword_lower.split())
-        if word_count > 1:
-            weighted_keywords[keyword_lower] = weighted_keywords.get(keyword_lower, 0) + (2.0 * word_count)
-
+    weighted_keywords = keyword_analyzer.extract_weighted_keywords(keywords_lower)
+    
+    # Добавляем исходные ключевые слова с весом
     for keyword in keywords:
         keyword_lower = keyword.lower()
         keyword_base = title_analyzer._get_base_form(keyword_lower)
@@ -2347,7 +2087,7 @@ def analyze_filtered_works_for_topic(
             
             # Calculate enhanced relevance score
             relevance_score, matched_keywords = calculate_enhanced_relevance(
-                work, normalized_keywords, title_analyzer, keyword_analyzer
+                work, normalized_keywords, title_analyzer
             )
             
             if relevance_score > 0:
@@ -4109,6 +3849,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
