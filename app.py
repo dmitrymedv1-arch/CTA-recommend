@@ -1701,11 +1701,11 @@ class TitleKeywordsAnalyzer:
             'treatment', 'utilization', 'validation', 'verification'
         }
 
-            # Химические константы
-            self.chemical_elements = CHEM_ELEMENTS
-            self.chemical_weight = CHEMICAL_WEIGHT
-            self.organic_weight = ORGANIC_PATTERN_WEIGHT
-            self.chem_formula_bonus = CHEM_FORMULA_BONUS
+        # Химические константы
+        self.chemical_elements = CHEM_ELEMENTS
+        self.chemical_weight = CHEMICAL_WEIGHT
+        self.organic_weight = ORGANIC_PATTERN_WEIGHT
+        self.chem_formula_bonus = CHEM_FORMULA_BONUS
         
     def _get_lemma(self, word: str) -> str:
         """Get word lemma considering special rules"""
@@ -4449,6 +4449,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
