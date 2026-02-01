@@ -2678,7 +2678,32 @@ def analyze_filtered_works_for_topic(
 
 def generate_csv(data: List[dict]) -> str:
     """Генерация CSV файла"""
-    df = pd.DataFrame(data)
+    # Существующий код:
+    display_data = []
+    for work in data:
+        # Существующие поля:
+        row = {
+            'Title': work.get('title', ''),
+            'Authors': '; '.join(work.get('authors', [])),
+            'Journal': work.get('journal_name', ''),
+            'Year': work.get('publication_year', ''),
+            'Citations': work.get('cited_by_count', 0),
+            'Relevance Score': work.get('relevance_score', 0),
+            'DOI': work.get('doi', ''),
+            'Open Access': 'Yes' if work.get('is_oa') else 'No',
+            'Abstract': work.get('abstract', '')[:200],
+            'Matched Keywords': '; '.join(work.get('matched_keywords', [])),
+            
+            # ДОБАВЬТЕ ЗДЕСЬ (после 'Matched Keywords'):
+            'Has Chemical Formula': 'Yes' if work.get('has_chemical_formula') else 'No',
+            'Has Organic Pattern': 'Yes' if work.get('has_organic_pattern') else 'No',
+            'Chemical Bonus': work.get('chemical_bonus', 0.0),
+            'Primary Topic': work.get('primary_topic', ''),
+            'Institutions': '; '.join(work.get('institutions', []))
+        }
+        display_data.append(row)
+    
+    df = pd.DataFrame(display_data)
     return df.to_csv(index=False, encoding='utf-8-sig')
 
 def generate_excel(data: List[dict]) -> bytes:
@@ -2686,7 +2711,31 @@ def generate_excel(data: List[dict]) -> bytes:
     output = io.BytesIO()
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df = pd.DataFrame(data)
+        # Существующий код создания display_data:
+        display_data = []
+        for work in data:
+            row = {
+                'Title': work.get('title', ''),
+                'Authors': '; '.join(work.get('authors', [])),
+                'Journal': work.get('journal_name', ''),
+                'Year': work.get('publication_year', ''),
+                'Citations': work.get('cited_by_count', 0),
+                'Relevance Score': work.get('relevance_score', 0),
+                'DOI': work.get('doi', ''),
+                'Open Access': 'Yes' if work.get('is_oa') else 'No',
+                'Abstract': work.get('abstract', '')[:200],
+                'Matched Keywords': '; '.join(work.get('matched_keywords', [])),
+                
+                # ДОБАВЬТЕ ЗДЕСЬ (после 'Matched Keywords'):
+                'Has Chemical Formula': 'Yes' if work.get('has_chemical_formula') else 'No',
+                'Has Organic Pattern': 'Yes' if work.get('has_organic_pattern') else 'No',
+                'Chemical Bonus': work.get('chemical_bonus', 0.0),
+                'Primary Topic': work.get('primary_topic', ''),
+                'Institutions': '; '.join(work.get('institutions', []))
+            }
+            display_data.append(row)
+        
+        df = pd.DataFrame(display_data)
         df.to_excel(writer, sheet_name='Papers', index=False)
         
         # Добавляем заголовок
@@ -3102,6 +3151,20 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     
     # Обрабатываем каждую статью (ограничиваем 30 для читаемости)
     for i, work in enumerate(data[:30], 1):
+        # Существующий код для заголовка, авторов, метрик...
+        
+        # Добавьте химическую информацию после ключевых слов:
+        if work.get('has_chemical_formula') or work.get('has_organic_pattern'):
+            chem_text = ""
+            if work.get('has_chemical_formula'):
+                chem_text += "🧪 Chemical formula "
+            if work.get('has_organic_pattern'):
+                chem_text += "⚗️ Organic pattern "
+            if work.get('chemical_bonus', 0) > 0:
+                chem_text += f"(Bonus: {work.get('chemical_bonus', 0):.1f})"
+            
+            story.append(Paragraph(f"<b>Chemical Info:</b> {clean_text(chem_text)}", keywords_style))
+            
         # Заголовок статьи
         title = clean_text(work.get('title', 'No title available'))
         story.append(Paragraph(f"{i}. {title}", paper_title_style))
@@ -4386,5 +4449,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
