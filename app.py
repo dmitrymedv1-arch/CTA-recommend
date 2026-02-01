@@ -3621,7 +3621,7 @@ def step_results():
                 keywords=top_keywords,
                 selected_years=selected_years,
                 selected_citations=selected_citations,
-                max_works=5000,  # Увеличили лимит для полноты
+                max_works=15000,  # Увеличили лимит для полноты
                 top_n=100
             )
         
@@ -3852,3 +3852,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
