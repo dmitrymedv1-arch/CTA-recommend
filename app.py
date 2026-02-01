@@ -1678,6 +1678,44 @@ class TitleKeywordsAnalyzer:
 
         return compounds
 
+    def extract_ngrams(self, text: str, n: int = 2) -> List[str]:
+        """
+        Извлекает n-граммы из текста.
+        
+        Args:
+            text: Входной текст
+            n: Размер n-граммы (2 для биграмм, 3 для триграмм)
+        
+        Returns:
+            Список n-грамм
+        """
+        if not text or text in ['Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
+            return []
+        
+        text = text.lower()
+        text = re.sub(r'[^a-zA-Z\s-]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        words = text.split()
+        
+        if len(words) < n:
+            return []
+        
+        ngrams = []
+        for i in range(len(words) - n + 1):
+            # Проверяем, что все слова в n-грамме достаточно длинные
+            valid_ngram = True
+            for j in range(n):
+                if len(words[i + j]) < 3 or words[i + j] in self.stop_words:
+                    valid_ngram = False
+                    break
+            
+            if valid_ngram:
+                ngram = ' '.join(words[i:i + n])
+                ngrams.append(ngram)
+        
+        return ngrams
+
     def _are_similar_lemmas(self, lemma1: str, lemma2: str) -> bool:
         """Check if lemmas are similar (e.g., singular/plural)"""
         if lemma1 == lemma2:
@@ -1717,15 +1755,117 @@ class EnhancedKeywordAnalyzer:
     def __init__(self):
         self.title_analyzer = TitleKeywordsAnalyzer()
         
-        # Веса для разных типов слов
+        # Обновленные веса с n-граммами
         self.weights = {
-            'content': 1.0,
-            'compound': 1.5,  # Составные слова важнее
-            'scientific': 0.7  # Научные стоп-слова менее важны
+            'unigram': 1.0,      # Одно слово
+            'bigram': 2.5,       # 2 слова (бонус за контекст)
+            'trigram': 4.0,      # 3 слова (еще больше бонус)
+            'compound': 1.5,     # Через дефис
+            'scientific': 0.7    # Научные стоп-слова
         }
-    
+        
+        # Часто встречающиеся биграммы в научных статьях
+        self.common_bigrams = {
+            'systematic review', 'literature review', 'scoping review',
+            'narrative review', 'integrative review', 'rapid review',
+            'machine learning', 'deep learning', 'reinforcement learning',
+            'supervised learning', 'unsupervised learning', 'transfer learning',
+            'artificial intelligence', 'neural network', 'support vector',
+            'random forest', 'natural language', 'computer vision',
+            'big data', 'data mining', 'text mining', 'web mining',
+            'climate change', 'global warming', 'renewable energy',
+            'sustainable development', 'carbon footprint', 'greenhouse gas',
+            'solar energy', 'wind energy', 'hydropower energy',
+            'clinical trial', 'case study', 'field study', 'cohort study',
+            'longitudinal study', 'cross sectional', 'experimental design',
+            'data analysis', 'statistical analysis', 'regression analysis',
+            'factor analysis', 'cluster analysis', 'content analysis',
+            'research question', 'research gap', 'knowledge gap',
+            'theoretical framework', 'conceptual framework', 'analytical framework',
+            'system dynamics', 'complex systems', 'agent based',
+            'internet things', 'cloud computing', 'edge computing',
+            'blockchain technology', 'digital transformation', 'smart city',
+            'public health', 'mental health', 'health care', 'health system',
+            'circular economy', 'sharing economy', 'digital economy',
+            'social media', 'social network', 'social capital',
+            'organizational behavior', 'human resource', 'strategic management',
+            'supply chain', 'value chain', 'business model',
+            'higher education', 'distance learning', 'online learning',
+            'critical thinking', 'problem solving', 'decision making',
+            'risk assessment', 'impact assessment', 'environmental impact',
+            'life cycle', 'carbon cycle', 'water cycle', 'nutrient cycle',
+            'gene expression', 'protein synthesis', 'cell division',
+            'immune system', 'nervous system', 'endocrine system',
+            'quantum computing', 'quantum mechanics', 'quantum information',
+            'material science', 'nanotechnology', 'biotechnology',
+            'renewable resource', 'finite resource', 'natural resource',
+            'urban planning', 'regional development', 'economic growth',
+            'political science', 'international relations', 'public policy',
+            'cultural heritage', 'historical analysis', 'archaeological site',
+            'linguistic analysis', 'discourse analysis', 'sentiment analysis',
+            'user experience', 'human computer', 'user interface'
+        }
+        
+        # Часто встречающиеся триграммы
+        self.common_trigrams = {
+            'systematic literature review', 'artificial neural network',
+            'convolutional neural network', 'recurrent neural network',
+            'deep neural network', 'support vector machine',
+            'random forest classifier', 'natural language processing',
+            'computer vision system', 'climate change adaptation',
+            'renewable energy source', 'greenhouse gas emission',
+            'clinical trial study', 'data analysis technique',
+            'research question formulation', 'knowledge gap identification',
+            'machine learning algorithm', 'deep learning model',
+            'reinforcement learning agent', 'supervised learning approach',
+            'unsupervised learning method', 'transfer learning technique',
+            'big data analytics', 'data mining technique', 'text mining tool',
+            'web mining application', 'sustainable development goal',
+            'carbon footprint reduction', 'global warming potential',
+            'solar energy system', 'wind energy farm', 'hydropower plant',
+            'longitudinal cohort study', 'cross sectional study',
+            'experimental research design', 'statistical data analysis',
+            'regression analysis method', 'factor analysis technique',
+            'cluster analysis approach', 'content analysis framework',
+            'theoretical conceptual framework', 'analytical research framework',
+            'system dynamics model', 'complex systems theory',
+            'agent based modeling', 'internet things platform',
+            'cloud computing service', 'edge computing architecture',
+            'blockchain technology application', 'digital transformation strategy',
+            'smart city initiative', 'public health intervention',
+            'mental health treatment', 'health care system',
+            'circular economy model', 'sharing economy platform',
+            'digital economy ecosystem', 'social media platform',
+            'social network analysis', 'social capital formation',
+            'organizational behavior study', 'human resource management',
+            'strategic management process', 'supply chain management',
+            'value chain analysis', 'business model innovation',
+            'higher education institution', 'distance learning program',
+            'online learning platform', 'critical thinking skill',
+            'problem solving ability', 'decision making process',
+            'risk assessment methodology', 'impact assessment framework',
+            'environmental impact assessment', 'life cycle assessment',
+            'carbon cycle model', 'water cycle management',
+            'nutrient cycle analysis', 'gene expression regulation',
+            'protein synthesis process', 'cell division mechanism',
+            'immune system response', 'nervous system function',
+            'endocrine system regulation', 'quantum computing algorithm',
+            'quantum mechanics theory', 'quantum information science',
+            'material science research', 'nanotechnology application',
+            'biotechnology innovation', 'renewable resource management',
+            'finite resource depletion', 'natural resource conservation',
+            'urban planning strategy', 'regional development plan',
+            'economic growth model', 'political science research',
+            'international relations theory', 'public policy analysis',
+            'cultural heritage preservation', 'historical analysis method',
+            'archaeological site excavation', 'linguistic analysis technique',
+            'discourse analysis framework', 'sentiment analysis tool',
+            'user experience design', 'human computer interaction',
+            'user interface design'
+        }
+
     def extract_weighted_keywords(self, titles: List[str]) -> Dict[str, float]:
-        """Извлечение ключевых слов с весами"""
+        """Извлечение ключевых слов с весами, включая n-граммы"""
         weighted_counter = Counter()
         
         for title in titles:
@@ -1736,22 +1876,45 @@ class EnhancedKeywordAnalyzer:
             content_words = self.title_analyzer.preprocess_content_words(title)
             compound_words = self.title_analyzer.extract_compound_words(title)
             
-            # Учитываем веса
+            # Извлекаем n-граммы
+            bigrams = self.title_analyzer.extract_ngrams(title, n=2)
+            trigrams = self.title_analyzer.extract_ngrams(title, n=3)
+            
+            # Учитываем веса для униграмм
             for word_info in content_words:
                 lemma = word_info['lemma']
-                if lemma:
-                    weighted_counter[lemma] += self.weights['content']
+                if lemma and len(lemma) >= 3:
+                    weighted_counter[lemma] += self.weights['unigram']
             
+            # Учитываем веса для составных слов (через дефис)
             for word_info in compound_words:
                 lemma = word_info['lemma']
                 if lemma:
                     weighted_counter[lemma] += self.weights['compound']
+            
+            # Учитываем веса для биграмм
+            for bigram in bigrams:
+                # Проверяем, является ли это распространенной биграммой
+                if bigram in self.common_bigrams:
+                    weighted_counter[bigram] += self.weights['bigram'] * 1.2  # Бонус за известную биграмму
+                else:
+                    weighted_counter[bigram] += self.weights['bigram']
+            
+            # Учитываем веса для триграмм
+            for trigram in trigrams:
+                # Проверяем, является ли это распространенной триграммой
+                if trigram in self.common_trigrams:
+                    weighted_counter[trigram] += self.weights['trigram'] * 1.3  # Бонус за известную триграмму
+                else:
+                    weighted_counter[trigram] += self.weights['trigram']
         
         return weighted_counter
 
 def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float], 
-                                 analyzer: TitleKeywordsAnalyzer) -> Tuple[float, List[str]]:
-    """Расчет релевантности с учетом семантической близости"""
+                                 analyzer: TitleKeywordsAnalyzer,
+                                 common_bigrams: Set[str] = None,
+                                 common_trigrams: Set[str] = None) -> Tuple[float, List[str]]:
+    """Расчет релевантности с учетом семантической близости и n-грамм"""
     
     title = work.get('title', '').lower()
     abstract = work.get('abstract', '').lower()
@@ -1766,6 +1929,10 @@ def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float],
     title_words = analyzer.preprocess_content_words(title)
     compound_words = analyzer.extract_compound_words(title)
     
+    # Извлекаем n-граммы из заголовка
+    title_bigrams = analyzer.extract_ngrams(title, n=2)
+    title_trigrams = analyzer.extract_ngrams(title, n=3)
+    
     title_lemmas = {w['lemma'] for w in title_words}
     compound_lemmas = {w['lemma'] for w in compound_words}
     all_title_lemmas = title_lemmas.union(compound_lemmas)
@@ -1773,33 +1940,80 @@ def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float],
     # Проверяем каждое ключевое слово
     for keyword, weight in keywords.items():
         keyword_lower = keyword.lower()
-        keyword_base = analyzer._get_base_form(keyword_lower)
+        keyword_base = analyzer._get_base_form(keyword_lower) if ' ' not in keyword_lower else keyword_lower
         
-        # Проверяем точное совпадение в заголовке
-        if keyword_lower in title:
-            score += weight * 3.0  # Высокий вес для точного совпадения
+        # Определяем тип ключевого слова для расчета веса
+        if ' ' in keyword_lower:
+            word_count = len(keyword_lower.split())
+            if word_count == 2:
+                multiplier = 3.5  # Более высокий вес для биграмм
+            elif word_count == 3:
+                multiplier = 5.0  # Еще более высокий вес для триграмм
+            else:
+                multiplier = 3.0
+        else:
+            multiplier = 3.0
+        
+        # Проверяем точное совпадение n-граммы в заголовке
+        if ' ' in keyword_lower and keyword_lower in title:
+            score += weight * multiplier  # Высокий вес для точного совпадения n-граммы
             if keyword not in matched_keywords:
-                matched_keywords.append(keyword)
+                matched_keywords.append(f"[{word_count}-gram] {keyword}")
         
-        # Проверяем точное совпадение в аннотации
+        # Проверяем точное совпадение в аннотации (для n-грамм тоже)
         elif abstract and keyword_lower in abstract:
-            score += weight * 1.0  # Меньший вес для аннотации
+            score += weight * (multiplier * 0.8)  # Меньший вес для аннотации
             if f"{keyword}*" not in matched_keywords:
                 matched_keywords.append(f"{keyword}*")
         
-        else:
-            # Проверяем лемматизированные формы в заголовке
+        # Для одиночных слов проверяем семантическую близость
+        elif ' ' not in keyword_lower:
             for lemma in all_title_lemmas:
                 if analyzer._are_similar_lemmas(keyword_base, lemma):
                     score += weight * 2.0  # Средний вес для семантической близости
                     if f"{keyword}~{lemma}" not in matched_keywords:
                         matched_keywords.append(f"{keyword}~{lemma}")
                     break
+        
+        # Для n-грамм проверяем частичные совпадения
+        else:
+            # Разбиваем n-грамму на слова
+            keyword_words = keyword_lower.split()
+            
+            # Проверяем наличие всех слов n-граммы в заголовке (не обязательно подряд)
+            all_words_present = True
+            for word in keyword_words:
+                if word not in title:
+                    all_words_present = False
+                    break
+            
+            if all_words_present:
+                # Бонус за наличие всех слов, но не обязательно как n-граммы
+                score += weight * (multiplier * 0.6)
+                if f"{keyword}°" not in matched_keywords:
+                    matched_keywords.append(f"{keyword}°")
     
     # Дополнительные бонусы
     compound_words_list = analyzer.extract_compound_words(title)
     if compound_words_list:
         score += len(compound_words_list) * 0.5
+    
+    # Бонусы за n-граммы в заголовке
+    if title_bigrams:
+        score += len(title_bigrams) * 0.8
+    if title_trigrams:
+        score += len(title_trigrams) * 1.2
+    
+    # Дополнительные бонусы за распространенные n-граммы
+    if common_bigrams:
+        for bigram in title_bigrams:
+            if bigram in common_bigrams:
+                score += 1.0
+    
+    if common_trigrams:
+        for trigram in title_trigrams:
+            if trigram in common_trigrams:
+                score += 1.5
     
     return score, matched_keywords
 
@@ -1915,9 +2129,10 @@ def analyze_works_for_topic(
                 logger.debug(f"Excluding work with input DOI: {doi_clean}")
                 continue
             
-            # Calculate enhanced relevance score
+            # Calculate enhanced relevance score with n-grams
             relevance_score, matched_keywords = calculate_enhanced_relevance(
-                work, normalized_keywords, title_analyzer
+                work, normalized_keywords, title_analyzer,
+                keyword_analyzer.common_bigrams, keyword_analyzer.common_trigrams
             )
             
             if relevance_score > 0:
@@ -2084,10 +2299,11 @@ def analyze_filtered_works_for_topic(
             if doi_clean and doi_clean in input_dois:
                 logger.debug(f"Excluding work with input DOI: {doi_clean}")
                 continue
-            
-            # Calculate enhanced relevance score
+
+            # Calculate enhanced relevance score with n-grams
             relevance_score, matched_keywords = calculate_enhanced_relevance(
-                work, normalized_keywords, title_analyzer
+                work, normalized_keywords, title_analyzer,
+                self.common_bigrams, self.common_trigrams
             )
             
             if relevance_score > 0:
@@ -3849,5 +4065,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
