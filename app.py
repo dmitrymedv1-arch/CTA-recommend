@@ -886,7 +886,7 @@ class TopicIDFCalculator:
             if openalex_keywords:
                 text_parts.extend(openalex_keywords)
             
-            combined_text = ' '.join(text_parts)
+            combined_text = ' '.join(str(part) for part in text_parts if part is not None)
             
             # Извлекаем термины
             content_words = analyzer.preprocess_content_words(combined_text)
@@ -4589,6 +4589,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
