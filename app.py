@@ -20,7 +20,7 @@ from ratelimit import limits, sleep_and_retry
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-from typing import List, Dict, Tuple, Optional, Set, Any
+from typing import List, Dict, Tuple, Optional, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import io
@@ -36,16 +36,6 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import Image
 import xlsxwriter
 from PIL import Image as PILImage
-import math
-from collections import defaultdict
-
-# Добавление sentence-transformers для семантической близости
-try:
-    from sentence_transformers import SentenceTransformer, util
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
-    st.warning("sentence-transformers not installed. Semantic similarity will be disabled. Install with: pip install sentence-transformers")
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -303,25 +293,6 @@ st.markdown("""
         color: #667eea;
         font-weight: 600;
     }
-    
-    /* Стили для разнообразия результатов */
-    .diversity-badge {
-        background: #9C27B0;
-        color: white;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.7rem;
-        margin-left: 5px;
-    }
-    
-    .cluster-badge {
-        background: #FF9800;
-        color: white;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.7rem;
-        margin-left: 5px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -343,12 +314,6 @@ MAX_DELAY = 60
 CACHE_DIR = Path("./cache")
 CACHE_DB = CACHE_DIR / "openalex_cache.db"
 CACHE_EXPIRY_DAYS = 30
-
-# Настройки для эмбеддингов и MMR
-EMBEDDING_CACHE_DB = CACHE_DIR / "embeddings_cache.db"
-MMR_LAMBDA = 0.7  # Баланс между релевантностью (0.7) и разнообразием (0.3)
-MAX_EMBEDDING_BATCH_SIZE = 32
-USE_SEMANTIC_SIMILARITY = True
 
 # Инициализация кэш директории
 CACHE_DIR.mkdir(exist_ok=True)
@@ -381,7 +346,7 @@ COMMON_WORDS = {
 ALL_STOPWORDS = set(stopwords.words('english')).union(COMMON_WORDS)
 
 # ============================================================================
-# КЭШИРОВАНИЕ НА УРОВНЕ SQLite (ДОПОЛНЕНО ДЛЯ ЭМБЕДДИНГОВ)
+# КЭШИРОВАНИЕ НА УРОВНЕ SQLite
 # ============================================================================
 
 def init_cache_db():
@@ -424,37 +389,6 @@ def init_cache_db():
     conn.commit()
     conn.close()
 
-def init_embedding_cache_db():
-    """Инициализация кэша для эмбеддингов"""
-    conn = sqlite3.connect(EMBEDDING_CACHE_DB)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS embeddings_cache (
-            text_hash TEXT PRIMARY KEY,
-            embedding BLOB NOT NULL,
-            model_name TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            expires_at DATETIME
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS query_embeddings_cache (
-            query_hash TEXT PRIMARY KEY,
-            embedding BLOB NOT NULL,
-            model_name TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            expires_at DATETIME
-        )
-    ''')
-    
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_embeddings_expires ON embeddings_cache(expires_at)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_query_embeddings_expires ON query_embeddings_cache(expires_at)')
-    
-    conn.commit()
-    conn.close()
-
 def get_cache_key(prefix: str, key: str) -> str:
     return hashlib.md5(f"{prefix}:{key}".encode()).hexdigest()
 
@@ -462,11 +396,6 @@ def get_cache_key(prefix: str, key: str) -> str:
 def get_db_connection():
     init_cache_db()
     return sqlite3.connect(CACHE_DB, check_same_thread=False)
-
-@st.cache_resource
-def get_embedding_db_connection():
-    init_embedding_cache_db()
-    return sqlite3.connect(EMBEDDING_CACHE_DB, check_same_thread=False)
 
 def cache_work(doi: str, data: dict):
     conn = get_db_connection()
@@ -550,82 +479,6 @@ def get_cached_topic_stats(topic_id: str) -> Optional[dict]:
         return json.loads(result[0])
     return None
 
-def cache_embedding(text: str, embedding: np.ndarray, model_name: str = "default"):
-    """Кэширование эмбеддинга текста"""
-    conn = get_embedding_db_connection()
-    cursor = conn.cursor()
-    
-    text_hash = hashlib.md5(text.encode()).hexdigest()
-    expires_at = datetime.now() + timedelta(days=30)
-    
-    # Сериализация numpy массива в бинарный формат
-    embedding_bytes = embedding.astype(np.float32).tobytes()
-    
-    cursor.execute('''
-        INSERT OR REPLACE INTO embeddings_cache (text_hash, embedding, model_name, expires_at)
-        VALUES (?, ?, ?, ?)
-    ''', (text_hash, embedding_bytes, model_name, expires_at))
-    
-    conn.commit()
-
-def get_cached_embedding(text: str, model_name: str = "default") -> Optional[np.ndarray]:
-    """Получение кэшированного эмбеддинга"""
-    conn = get_embedding_db_connection()
-    cursor = conn.cursor()
-    
-    text_hash = hashlib.md5(text.encode()).hexdigest()
-    
-    cursor.execute('''
-        SELECT embedding FROM embeddings_cache 
-        WHERE text_hash = ? AND model_name = ? 
-        AND (expires_at IS NULL OR expires_at > ?)
-    ''', (text_hash, model_name, datetime.now()))
-    
-    result = cursor.fetchone()
-    if result:
-        # Десериализация бинарных данных обратно в numpy массив
-        embedding_bytes = result[0]
-        embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
-        return embedding
-    return None
-
-def cache_query_embedding(query: str, embedding: np.ndarray, model_name: str = "default"):
-    """Кэширование эмбеддинга запроса"""
-    conn = get_embedding_db_connection()
-    cursor = conn.cursor()
-    
-    query_hash = hashlib.md5(query.encode()).hexdigest()
-    expires_at = datetime.now() + timedelta(days=30)
-    
-    embedding_bytes = embedding.astype(np.float32).tobytes()
-    
-    cursor.execute('''
-        INSERT OR REPLACE INTO query_embeddings_cache (query_hash, embedding, model_name, expires_at)
-        VALUES (?, ?, ?, ?)
-    ''', (query_hash, embedding_bytes, model_name, expires_at))
-    
-    conn.commit()
-
-def get_cached_query_embedding(query: str, model_name: str = "default") -> Optional[np.ndarray]:
-    """Получение кэшированного эмбеддинга запроса"""
-    conn = get_embedding_db_connection()
-    cursor = conn.cursor()
-    
-    query_hash = hashlib.md5(query.encode()).hexdigest()
-    
-    cursor.execute('''
-        SELECT embedding FROM query_embeddings_cache 
-        WHERE query_hash = ? AND model_name = ? 
-        AND (expires_at IS NULL OR expires_at > ?)
-    ''', (query_hash, model_name, datetime.now()))
-    
-    result = cursor.fetchone()
-    if result:
-        embedding_bytes = result[0]
-        embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
-        return embedding
-    return None
-
 def clear_old_cache():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -638,292 +491,6 @@ def clear_old_cache():
     cursor.execute('DELETE FROM topics_cache WHERE expires_at <= ?', (now_str,))
     
     conn.commit()
-    
-    # Очистка кэша эмбеддингов
-    conn_emb = get_embedding_db_connection()
-    cursor_emb = conn_emb.cursor()
-    cursor_emb.execute('DELETE FROM embeddings_cache WHERE expires_at <= ?', (now_str,))
-    cursor_emb.execute('DELETE FROM query_embeddings_cache WHERE expires_at <= ?', (now_str,))
-    conn_emb.commit()
-
-# ============================================================================
-# НОВЫЙ КЛАСС ДЛЯ СЕМАНТИЧЕСКИХ ЭМБЕДДИНГОВ
-# ============================================================================
-
-class SemanticEmbeddingEngine:
-    """Класс для работы с семантическими эмбеддингами"""
-    
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        self.model_name = model_name
-        self.model = None
-        self.is_available = SENTENCE_TRANSFORMERS_AVAILABLE
-        
-        if self.is_available:
-            try:
-                self.model = SentenceTransformer(model_name)
-                logger.info(f"Loaded sentence transformer model: {model_name}")
-            except Exception as e:
-                logger.error(f"Failed to load sentence transformer: {e}")
-                self.is_available = False
-    
-    def encode(self, texts: List[str], batch_size: int = 32) -> Optional[np.ndarray]:
-        """Получение эмбеддингов для списка текстов с кэшированием"""
-        if not self.is_available or not texts:
-            return None
-        
-        # Фильтруем пустые тексты
-        valid_texts = [t for t in texts if t and t.strip()]
-        if not valid_texts:
-            return None
-        
-        embeddings = []
-        uncached_indices = []
-        uncached_texts = []
-        
-        # Проверяем кэш для каждого текста
-        for i, text in enumerate(valid_texts):
-            cached = get_cached_embedding(text, self.model_name)
-            if cached is not None:
-                embeddings.append(cached)
-            else:
-                embeddings.append(None)
-                uncached_indices.append(i)
-                uncached_texts.append(text)
-        
-        # Получаем эмбеддинги для некэшированных текстов
-        if uncached_texts:
-            try:
-                # Разбиваем на батчи для экономии памяти
-                for i in range(0, len(uncached_texts), batch_size):
-                    batch_texts = uncached_texts[i:i+batch_size]
-                    batch_embeddings = self.model.encode(batch_texts, convert_to_numpy=True)
-                    
-                    # Сохраняем в кэш и добавляем к результатам
-                    for j, emb in enumerate(batch_embeddings):
-                        text_idx = uncached_indices[i + j]
-                        embeddings[text_idx] = emb
-                        cache_embedding(uncached_texts[i + j], emb, self.model_name)
-                        
-            except Exception as e:
-                logger.error(f"Error encoding texts: {e}")
-                return None
-        
-        # Преобразуем список эмбеддингов в матрицу
-        valid_embeddings = [emb for emb in embeddings if emb is not None]
-        if valid_embeddings:
-            return np.vstack(valid_embeddings)
-        
-        return None
-    
-    def encode_query(self, query: str) -> Optional[np.ndarray]:
-        """Получение эмбеддинга для запроса с кэшированием"""
-        if not self.is_available or not query:
-            return None
-        
-        # Проверяем кэш
-        cached = get_cached_query_embedding(query, self.model_name)
-        if cached is not None:
-            return cached
-        
-        try:
-            embedding = self.model.encode(query, convert_to_numpy=True)
-            cache_query_embedding(query, embedding, self.model_name)
-            return embedding
-        except Exception as e:
-            logger.error(f"Error encoding query: {e}")
-            return None
-    
-    def compute_similarity(self, query_embedding: np.ndarray, 
-                          document_embeddings: np.ndarray) -> np.ndarray:
-        """Вычисление косинусной близости между запросом и документами"""
-        if query_embedding is None or document_embeddings is None:
-            return None
-        
-        # Нормализуем векторы
-        query_norm = query_embedding / np.linalg.norm(query_embedding)
-        docs_norm = document_embeddings / np.linalg.norm(document_embeddings, axis=1, keepdims=True)
-        
-        # Вычисляем косинусную близость
-        similarities = np.dot(docs_norm, query_norm)
-        
-        return similarities
-
-# ============================================================================
-# НОВЫЙ КЛАСС ДЛЯ MMR (MAXIMAL MARGINAL RELEVANCE)
-# ============================================================================
-
-class MMRRanker:
-    """Класс для ранжирования с учетом разнообразия (MMR)"""
-    
-    def __init__(self, lambda_param: float = 0.7):
-        """
-        Args:
-            lambda_param: Баланс между релевантностью (λ) и разнообразием (1-λ)
-                         Высокий λ = больше релевантности, меньше разнообразия
-        """
-        self.lambda_param = lambda_param
-    
-    def rerank(self, documents: List[Dict], 
-               relevance_scores: List[float],
-               embeddings: Optional[np.ndarray] = None,
-               top_n: int = 20) -> List[Dict]:
-        """
-        Переранжирование документов с использованием MMR
-        
-        Args:
-            documents: Список документов
-            relevance_scores: Оценки релевантности
-            embeddings: Матрица эмбеддингов документов (для разнообразия)
-            top_n: Количество результатов после переранжирования
-        
-        Returns:
-            Переранжированный список документов
-        """
-        if not documents or not relevance_scores:
-            return documents
-        
-        n_docs = len(documents)
-        
-        # Если нет эмбеддингов или мало документов, используем исходный порядок
-        if embeddings is None or n_docs <= 3 or not USE_SEMANTIC_SIMILARITY:
-            # Просто сортируем по релевантности и берем top_n
-            sorted_indices = np.argsort(relevance_scores)[::-1][:top_n]
-            return [documents[i] for i in sorted_indices]
-        
-        # Нормализуем релевантность к [0, 1]
-        relevance_scores = np.array(relevance_scores)
-        if relevance_scores.max() > relevance_scores.min():
-            relevance_norm = (relevance_scores - relevance_scores.min()) / (relevance_scores.max() - relevance_scores.min())
-        else:
-            relevance_norm = np.ones_like(relevance_scores)
-        
-        # Вычисляем матрицу попарного сходства документов
-        doc_embeddings_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
-        similarity_matrix = np.dot(doc_embeddings_norm, doc_embeddings_norm.T)
-        
-        # MMR алгоритм
-        selected_indices = []
-        remaining_indices = list(range(n_docs))
-        
-        # Выбираем первый документ с максимальной релевантностью
-        first_idx = np.argmax(relevance_norm)
-        selected_indices.append(first_idx)
-        remaining_indices.remove(first_idx)
-        
-        # Последовательно выбираем остальные документы
-        while len(selected_indices) < min(top_n, n_docs) and remaining_indices:
-            mmr_scores = []
-            
-            for i in remaining_indices:
-                # Релевантность
-                relevance = relevance_norm[i]
-                
-                # Разнообразие (максимальное сходство с уже выбранными)
-                if selected_indices:
-                    diversity = 1.0 - np.max(similarity_matrix[i, selected_indices])
-                else:
-                    diversity = 1.0
-                
-                # MMR = λ * relevance - (1-λ) * diversity
-                mmr = self.lambda_param * relevance - (1 - self.lambda_param) * diversity
-                mmr_scores.append(mmr)
-            
-            # Выбираем документ с максимальным MMR
-            best_idx = remaining_indices[np.argmax(mmr_scores)]
-            selected_indices.append(best_idx)
-            remaining_indices.remove(best_idx)
-        
-        # Возвращаем документы в порядке выбора
-        return [documents[i] for i in selected_indices]
-
-# ============================================================================
-# НОВЫЙ КЛАСС ДЛЯ РАСЧЕТА IDF ВНУТРИ ТЕМЫ
-# ============================================================================
-
-class TopicIDFCalculator:
-    """Класс для расчета IDF в рамках конкретной темы"""
-    
-    def __init__(self):
-        self.idf_scores = {}
-        self.total_docs = 0
-        self.doc_frequency = defaultdict(int)
-        self.is_calculated = False
-    
-    def calculate_idf(self, documents: List[Dict], 
-                     analyzer: 'TitleKeywordsAnalyzer') -> Dict[str, float]:
-        """
-        Расчет IDF для терминов в коллекции документов
-        
-        Args:
-            documents: Список документов
-            analyzer: Анализатор для извлечения терминов
-        
-        Returns:
-            Словарь {термин: idf_score}
-        """
-        if not documents:
-            return {}
-        
-        self.total_docs = len(documents)
-        self.doc_frequency = defaultdict(int)
-        
-        # Подсчет document frequency для каждого термина
-        for doc in documents:
-            # Извлекаем текст для анализа (заголовок + абстракт + ключевые слова)
-            text_parts = []
-            
-            title = doc.get('title', '')
-            if title:
-                text_parts.append(title)
-            
-            abstract = doc.get('abstract', '')
-            if abstract and abstract not in ['', 'Title not found', 'Request timeout', 
-                                             'Network error', 'Retrieval error']:
-                text_parts.append(abstract)
-            
-            # Также учитываем ключевые слова из OpenAlex
-            openalex_keywords = doc.get('keywords', [])
-            if openalex_keywords:
-                text_parts.extend(openalex_keywords)
-            
-            combined_text = ' '.join(str(part) for part in text_parts if part is not None)
-            
-            # Извлекаем термины
-            content_words = analyzer.preprocess_content_words(combined_text)
-            compound_words = analyzer.extract_compound_words(combined_text)
-            
-            # Уникальные термины в документе
-            doc_terms = set()
-            for word_info in content_words:
-                lemma = word_info['lemma']
-                if lemma:
-                    doc_terms.add(lemma)
-            
-            for word_info in compound_words:
-                lemma = word_info['lemma']
-                if lemma:
-                    doc_terms.add(lemma)
-            
-            # Обновляем document frequency
-            for term in doc_terms:
-                self.doc_frequency[term] += 1
-        
-        # Расчет IDF
-        self.idf_scores = {}
-        for term, df in self.doc_frequency.items():
-            # IDF = log((N - df + 0.5) / (df + 0.5)) + 1  (формула BM25)
-            idf = math.log((self.total_docs - df + 0.5) / (df + 0.5)) + 1
-            self.idf_scores[term] = idf
-        
-        self.is_calculated = True
-        return self.idf_scores
-    
-    def get_idf_weight(self, term: str) -> float:
-        """Получение IDF веса для термина"""
-        if not self.is_calculated:
-            return 1.0
-        
-        return self.idf_scores.get(term, math.log(self.total_docs + 1))
 
 # ============================================================================
 # НОВЫЕ ФУНКЦИИ ДЛЯ ПАРСИНГА ДИАПАЗОНОВ ЦИТИРОВАНИЙ
@@ -1572,29 +1139,6 @@ def extract_keywords_from_title(title: str) -> List[str]:
     
     return filtered_words
 
-def extract_keywords_from_text(text: str) -> List[str]:
-    """Извлечение ключевых слов из произвольного текста (заголовок, абстракт, ключевые слова)"""
-    if not text or text in ['Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
-        return []
-    
-    words = re.findall(r'\b[a-zA-Z]{4,}\b', text)
-    filtered_words = []
-    
-    for word in words:
-        word_lower = word.lower()
-        
-        if word_lower in ALL_STOPWORDS:
-            continue
-        
-        if re.search(r'\d', word_lower):
-            continue
-        
-        normalized = normalize_word(word_lower)
-        if normalized:
-            filtered_words.append(normalized)
-    
-    return filtered_words
-
 def extract_numeric_from_doi(doi: str) -> int:
     """
     Extract numeric suffix from DOI for comparison.
@@ -1692,17 +1236,6 @@ def analyze_keywords_parallel(titles: List[str]) -> Counter:
     
     return Counter(all_keywords)
 
-def analyze_keywords_from_texts_parallel(texts: List[str]) -> Counter:
-    """Анализ ключевых слов из списка текстов (для абстрактов)"""
-    all_keywords = []
-    
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(extract_keywords_from_text, text) for text in texts]
-        for future in as_completed(futures):
-            all_keywords.extend(future.result())
-    
-    return Counter(all_keywords)
-
 def enrich_work_data(work: dict) -> dict:
     if not work:
         return {}
@@ -1712,25 +1245,15 @@ def enrich_work_data(work: dict) -> dict:
     if doi_raw:
         doi_clean = str(doi_raw).replace('https://doi.org/', '')
     
-    # Получаем текущий год для расчета нормализованных цитирований
-    current_year = datetime.now().year
-    publication_year = work.get('publication_year', current_year)
-    cited_by_count = work.get('cited_by_count', 0)
-    
-    # Расчет цитирований в год (нормализация по возрасту)
-    age = max(1, current_year - publication_year + 1)
-    citations_per_year = cited_by_count / age
-    
     enriched = {
         'id': work.get('id', ''),
         'doi': doi_clean,
         'title': work.get('title', ''),
         'publication_date': work.get('publication_date', ''),
-        'publication_year': publication_year,
-        'cited_by_count': cited_by_count,
-        'citations_per_year': round(citations_per_year, 2),  # НОВОЕ: нормализованные цитирования
+        'publication_year': work.get('publication_year', 0),
+        'cited_by_count': work.get('cited_by_count', 0),
         'type': work.get('type', ''),
-        'abstract': work.get('abstract', '')[:1000] if work.get('abstract') else '',  # Увеличили длину абстракта
+        'abstract': (work.get('abstract') or '')[:500],
         'doi_url': f"https://doi.org/{doi_clean}" if doi_clean else '',
     }
     
@@ -1766,10 +1289,6 @@ def enrich_work_data(work: dict) -> dict:
     
     open_access = work.get('open_access')
     enriched['is_oa'] = open_access.get('is_oa', False) if open_access else False
-    
-    # НОВОЕ: Добавляем ключевые слова из OpenAlex
-    keywords = work.get('keywords', [])
-    enriched['openalex_keywords'] = [kw.get('display_name', '') for kw in keywords if kw] if keywords else []
     
     topics = work.get('topics', [])
     if topics:
@@ -2104,7 +1623,7 @@ class TitleKeywordsAnalyzer:
         
         return lemma
     
-    def preprocess_content_words(self, text: str, position_weight: float = 1.0) -> List[Dict]:
+    def preprocess_content_words(self, text: str) -> List[Dict]:
         """Clean and normalize content words, return dictionaries with lemmas and forms"""
         if not text or text in ['Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
             return []
@@ -2116,7 +1635,7 @@ class TitleKeywordsAnalyzer:
         words = text.split()
         content_words = []
 
-        for position, word in enumerate(words):
+        for word in words:
             # EXCLUDE word "sub"
             if word == 'sub':
                 continue
@@ -2125,20 +1644,15 @@ class TitleKeywordsAnalyzer:
             if len(word) > 2 and word not in self.stop_words:
                 lemma = self._get_base_form(word)
                 if lemma not in self.scientific_stopwords:
-                    # Position decay: exp(-k * position) with k=0.1
-                    position_decay = math.exp(-0.1 * position) if position_weight > 0 else 1.0
-                    
                     content_words.append({
                         'original': word,
                         'lemma': lemma,
-                        'type': 'content',
-                        'position': position,
-                        'weight': position_weight * position_decay
+                        'type': 'content'
                     })
 
         return content_words
 
-    def extract_compound_words(self, text: str, position_weight: float = 1.0) -> List[Dict]:
+    def extract_compound_words(self, text: str) -> List[Dict]:
         """Extract hyphenated compound words"""
         if not text or text in ['Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
             return []
@@ -2159,8 +1673,7 @@ class TitleKeywordsAnalyzer:
                 compounds.append({
                     'original': word,
                     'lemma': '-'.join(lemmatized_parts),
-                    'type': 'compound',
-                    'weight': position_weight * 1.5  # Compound words get higher weight
+                    'type': 'compound'
                 })
 
         return compounds
@@ -2208,123 +1721,77 @@ class EnhancedKeywordAnalyzer:
         self.weights = {
             'content': 1.0,
             'compound': 1.5,  # Составные слова важнее
-            'scientific': 0.7,  # Научные стоп-слова менее важны
-            'openalex_keyword': 2.0  # НОВОЕ: Ключевые слова из OpenAlex очень важны
+            'scientific': 0.7  # Научные стоп-слова менее важны
         }
     
-    def extract_weighted_keywords(self, texts: List[str], text_type: str = 'title') -> Dict[str, float]:
-        """Извлечение ключевых слов с весами из списка текстов"""
+    def extract_weighted_keywords(self, titles: List[str]) -> Dict[str, float]:
+        """Извлечение ключевых слов с весами"""
         weighted_counter = Counter()
         
-        for text in texts:
-            if not text:
+        for title in titles:
+            if not title:
                 continue
-            
-            # Определяем вес в зависимости от типа текста
-            if text_type == 'title':
-                position_weight = 3.0  # Заголовок важнее всего
-            elif text_type == 'abstract':
-                position_weight = 1.5  # Абстракт средней важности
-            elif text_type == 'keywords':
-                position_weight = 2.5  # Ключевые слова из OpenAlex очень важны
-            else:
-                position_weight = 1.0
-            
+                
             # Извлекаем все типы слов
-            content_words = self.title_analyzer.preprocess_content_words(text, position_weight)
-            compound_words = self.title_analyzer.extract_compound_words(text, position_weight)
+            content_words = self.title_analyzer.preprocess_content_words(title)
+            compound_words = self.title_analyzer.extract_compound_words(title)
             
             # Учитываем веса
             for word_info in content_words:
                 lemma = word_info['lemma']
-                weight = word_info.get('weight', position_weight) * self.weights['content']
                 if lemma:
-                    weighted_counter[lemma] += weight
+                    weighted_counter[lemma] += self.weights['content']
             
             for word_info in compound_words:
                 lemma = word_info['lemma']
-                weight = word_info.get('weight', position_weight) * self.weights['compound']
                 if lemma:
-                    weighted_counter[lemma] += weight
+                    weighted_counter[lemma] += self.weights['compound']
         
         return weighted_counter
 
 def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float], 
-                                 analyzer: TitleKeywordsAnalyzer,
-                                 idf_calculator: Optional[TopicIDFCalculator] = None,
-                                 query_embedding: Optional[np.ndarray] = None,
-                                 semantic_engine: Optional[SemanticEmbeddingEngine] = None) -> Tuple[float, List[str], Optional[float]]:
-    """
-    Расчет релевантности с учетом семантической близости, IDF весов и позиции в тексте
-    
-    Returns:
-        Кортеж (итоговый_score, список_совпавших_ключевых_слов, семантический_score)
-    """
+                                 analyzer: TitleKeywordsAnalyzer) -> Tuple[float, List[str]]:
+    """Расчет релевантности с учетом семантической близости"""
     
     title = work.get('title', '').lower()
     abstract = work.get('abstract', '').lower()
-    openalex_keywords = work.get('openalex_keywords', [])
     
     if not title:
-        return 0.0, [], None
+        return 0.0, []
     
     score = 0.0
-    semantic_score = 0.0
     matched_keywords = []
     
-    # Извлекаем слова из заголовка и абстракта анализируемой работы
-    title_words = analyzer.preprocess_content_words(title, position_weight=3.0)  # Заголовок важнее
-    abstract_words = analyzer.preprocess_content_words(abstract, position_weight=1.5) if abstract else []
-    
-    # Добавляем ключевые слова из OpenAlex с высоким весом
-    oa_keywords_lemmas = []
-    for kw in openalex_keywords:
-        kw_lower = kw.lower()
-        kw_lemmas = [analyzer._get_base_form(part) for part in kw_lower.split()]
-        oa_keywords_lemmas.extend(kw_lemmas)
+    # Извлекаем слова из заголовка анализируемой работы
+    title_words = analyzer.preprocess_content_words(title)
+    compound_words = analyzer.extract_compound_words(title)
     
     title_lemmas = {w['lemma'] for w in title_words}
-    abstract_lemmas = {w['lemma'] for w in abstract_words}
-    all_title_lemmas = title_lemmas.union(abstract_lemmas)
+    compound_lemmas = {w['lemma'] for w in compound_words}
+    all_title_lemmas = title_lemmas.union(compound_lemmas)
     
     # Проверяем каждое ключевое слово
-    for keyword, base_weight in keywords.items():
+    for keyword, weight in keywords.items():
         keyword_lower = keyword.lower()
         keyword_base = analyzer._get_base_form(keyword_lower)
         
-        # Получаем IDF вес
-        idf_weight = idf_calculator.get_idf_weight(keyword_base) if idf_calculator else 1.0
-        
         # Проверяем точное совпадение в заголовке
         if keyword_lower in title:
-            # Проверяем позицию слова в заголовке (первые слова важнее)
-            title_lower = title
-            words_in_title = title_lower.split()
-            for pos, word in enumerate(words_in_title):
-                if keyword_lower in word:
-                    position_bonus = math.exp(-0.1 * pos)  # Убывающий вес по позиции
-                    score += base_weight * 3.0 * idf_weight * position_bonus
-                    if keyword not in matched_keywords:
-                        matched_keywords.append(f"{keyword} (title)")
-                    break
+            score += weight * 3.0  # Высокий вес для точного совпадения
+            if keyword not in matched_keywords:
+                matched_keywords.append(keyword)
         
-        # Проверяем точное совпадение в абстракте
+        # Проверяем точное совпадение в аннотации
         elif abstract and keyword_lower in abstract:
-            score += base_weight * 1.5 * idf_weight  # Меньший вес для абстракта
+            score += weight * 1.0  # Меньший вес для аннотации
             if f"{keyword}*" not in matched_keywords:
-                matched_keywords.append(f"{keyword} (abstract)")
-        
-        # Проверяем точное совпадение в ключевых словах OpenAlex
-        elif keyword_lower in ' '.join(openalex_keywords).lower():
-            score += base_weight * 2.5 * idf_weight  # Высокий вес для официальных ключевых слов
-            if f"{keyword}[OA]" not in matched_keywords:
-                matched_keywords.append(f"{keyword}[OA]")
+                matched_keywords.append(f"{keyword}*")
         
         else:
-            # Проверяем лемматизированные формы в заголовке и абстракте
+            # Проверяем лемматизированные формы в заголовке
             for lemma in all_title_lemmas:
                 if analyzer._are_similar_lemmas(keyword_base, lemma):
-                    score += base_weight * 2.0 * idf_weight  # Средний вес для семантической близости
+                    score += weight * 2.0  # Средний вес для семантической близости
                     if f"{keyword}~{lemma}" not in matched_keywords:
                         matched_keywords.append(f"{keyword}~{lemma}")
                     break
@@ -2334,33 +1801,10 @@ def calculate_enhanced_relevance(work: dict, keywords: Dict[str, float],
     if compound_words_list:
         score += len(compound_words_list) * 0.5
     
-    # Нормализация score
+    return score, matched_keywords
     normalized_score = min(score * 2, 10)
     
-    # Семантическая близость (если доступна)
-    if semantic_engine is not None and query_embedding is not None:
-        # Создаем текст для эмбеддинга (заголовок + абстракт + ключевые слова)
-        text_for_embedding = title
-        if abstract:
-            text_for_embedding += " " + abstract[:500]  # Ограничиваем длину абстракта
-        if openalex_keywords:
-            text_for_embedding += " " + " ".join(openalex_keywords)
-        
-        # Получаем эмбеддинг документа
-        doc_embedding = semantic_engine.encode([text_for_embedding])
-        if doc_embedding is not None:
-            # Вычисляем косинусную близость
-            doc_embedding_norm = doc_embedding[0] / np.linalg.norm(doc_embedding[0])
-            similarity = np.dot(doc_embedding_norm, query_embedding)
-            
-            # Преобразуем в шкалу 0-10
-            semantic_score = similarity * 5  # similarity в [-1,1] -> [0,5]
-            
-            # Комбинируем с rule-based score
-            combined_score = (normalized_score * 0.6) + (semantic_score * 0.4)
-            return combined_score, matched_keywords, semantic_score
-    
-    return normalized_score, matched_keywords, semantic_score
+    return normalized_score, matched_keywords
 
 def passes_filters(work: dict, year_filter: List[int], 
                    citation_ranges: List[Tuple[int, int]]) -> bool:
@@ -2603,47 +2047,9 @@ def analyze_filtered_works_for_topic(
     title_analyzer = TitleKeywordsAnalyzer()
     keyword_analyzer = EnhancedKeywordAnalyzer()
     
-    # НОВОЕ: Извлечение ключевых слов из заголовков, абстрактов и ключевых слов OpenAlex
-    logger.info("Extracting weighted keywords from titles, abstracts and OpenAlex keywords...")
-    
-    titles = []
-    abstracts = []
-    oa_keywords_list = []
-    
-    for work in works:
-        title = work.get('title', '')
-        if title:
-            titles.append(title)
-        
-        abstract = work.get('abstract', '')
-        if abstract and abstract not in ['', 'Title not found', 'Request timeout', 'Network error', 'Retrieval error']:
-            abstracts.append(abstract[:1000])  # Ограничиваем длину абстракта
-        
-        # Добавляем ключевые слова из OpenAlex
-        oa_keywords = work.get('keywords', [])
-        if oa_keywords:
-            oa_keywords_text = ' '.join([kw.get('display_name', '') for kw in oa_keywords if kw])
-            oa_keywords_list.append(oa_keywords_text)
-    
-    # Извлекаем взвешенные ключевые слова из разных источников
-    title_keywords = keyword_analyzer.extract_weighted_keywords(titles, text_type='title')
-    abstract_keywords = keyword_analyzer.extract_weighted_keywords(abstracts, text_type='abstract')
-    oa_keywords = keyword_analyzer.extract_weighted_keywords(oa_keywords_list, text_type='keywords')
-    
-    # Комбинируем с разными весами
-    weighted_keywords = Counter()
-    
-    # Заголовки: вес 3.0
-    for kw, weight in title_keywords.items():
-        weighted_keywords[kw] += weight * 3.0
-    
-    # Абстракты: вес 1.5
-    for kw, weight in abstract_keywords.items():
-        weighted_keywords[kw] += weight * 1.5
-    
-    # Ключевые слова OpenAlex: вес 2.5
-    for kw, weight in oa_keywords.items():
-        weighted_keywords[kw] += weight * 2.5
+    # Преобразуем ключевые слова в взвешенный словарь
+    keywords_lower = [kw.lower() for kw in keywords]
+    weighted_keywords = keyword_analyzer.extract_weighted_keywords(keywords_lower)
     
     # Добавляем исходные ключевые слова с весом
     for keyword in keywords:
@@ -2656,48 +2062,13 @@ def analyze_filtered_works_for_topic(
     if weighted_keywords:
         max_weight = max(weighted_keywords.values())
         normalized_keywords = {k: v/max_weight for k, v in weighted_keywords.items()}
-        logger.info(f"Extracted {len(normalized_keywords)} unique weighted keywords")
     else:
         normalized_keywords = {}
-        logger.warning("No keywords extracted from texts")
-    
-    # НОВОЕ: Расчет IDF для терминов внутри темы
-    logger.info("Calculating IDF weights within topic...")
-    idf_calculator = TopicIDFCalculator()
-    idf_calculator.calculate_idf(works, title_analyzer)
-    logger.info(f"IDF calculated for {len(idf_calculator.idf_scores)} terms")
-    
-    # НОВОЕ: Инициализация семантического движка
-    semantic_engine = None
-    query_embedding = None
-    
-    if USE_SEMANTIC_SIMILARITY and SENTENCE_TRANSFORMERS_AVAILABLE:
-        try:
-            logger.info("Initializing semantic embedding engine...")
-            semantic_engine = SemanticEmbeddingEngine()
-            
-            # Создаем текстовый запрос из топ-ключевых слов
-            top_keywords_list = sorted(normalized_keywords.items(), key=lambda x: -x[1])[:20]
-            query_text = ' '.join([kw for kw, _ in top_keywords_list])
-            
-            # Получаем эмбеддинг запроса
-            query_embedding = semantic_engine.encode_query(query_text)
-            if query_embedding is not None:
-                logger.info("Query embedding created successfully")
-            else:
-                logger.warning("Failed to create query embedding")
-        except Exception as e:
-            logger.error(f"Error initializing semantic engine: {e}")
-            semantic_engine = None
-            query_embedding = None
     
     # Track duplicate titles to keep only one version (with highest DOI number)
     title_to_work_map = {}
     
-    # Для сбора эмбеддингов для MMR
-    works_with_scores = []
-    
-    with st.spinner(f"Analyzing {len(works)} works with enhanced semantic algorithm..."):
+    with st.spinner(f"Analyzing {len(works)} works with enhanced algorithm..."):
         analyzed = []
         
         for work in works:
@@ -2717,30 +2088,17 @@ def analyze_filtered_works_for_topic(
                 logger.debug(f"Excluding work with input DOI: {doi_clean}")
                 continue
             
-            # Calculate enhanced relevance score with IDF and semantic similarity
-            relevance_score, matched_keywords, semantic_score = calculate_enhanced_relevance(
-                work=work,
-                keywords=normalized_keywords,
-                analyzer=title_analyzer,
-                idf_calculator=idf_calculator,
-                query_embedding=query_embedding,
-                semantic_engine=semantic_engine
+            # Calculate enhanced relevance score
+            relevance_score, matched_keywords = calculate_enhanced_relevance(
+                work, normalized_keywords, title_analyzer
             )
             
             if relevance_score > 0:
                 enriched = enrich_work_data(work)
                 enriched.update({
                     'relevance_score': relevance_score,
-                    'semantic_score': semantic_score if semantic_score is not None else 0.0,
                     'matched_keywords': matched_keywords,
-                    'matched_keywords_count': len(matched_keywords),
                     'analysis_time': datetime.now().isoformat()
-                })
-                
-                # Сохраняем для MMR
-                works_with_scores.append({
-                    'work': enriched,
-                    'relevance_score': relevance_score
                 })
                 
                 # RULE 2: Handle duplicate titles
@@ -2774,51 +2132,18 @@ def analyze_filtered_works_for_topic(
         # Convert map back to list
         analyzed = list(title_to_work_map.values())
         
-        # НОВОЕ: Применяем MMR для разнообразия результатов
-        if semantic_engine is not None and len(analyzed) > 10 and USE_SEMANTIC_SIMILARITY:
-            logger.info("Applying MMR for result diversity...")
-            
-            # Получаем эмбеддинги для всех проанализированных работ
-            texts_for_embedding = []
-            for work in analyzed:
-                title = work.get('title', '')
-                abstract = work.get('abstract', '')[:300]  # Ограничиваем для скорости
-                oa_keywords = ' '.join(work.get('openalex_keywords', []))
-                texts_for_embedding.append(f"{title} {abstract} {oa_keywords}".strip())
-            
-            embeddings = semantic_engine.encode(texts_for_embedding, batch_size=MAX_EMBEDDING_BATCH_SIZE)
-            
-            if embeddings is not None:
-                # Создаем рангер MMR
-                mmr_ranker = MMRRanker(lambda_param=MMR_LAMBDA)
-                
-                # Получаем оценки релевантности
-                relevance_scores = [work.get('relevance_score', 0) for work in analyzed]
-                
-                # Переранжируем с MMR
-                reranked = mmr_ranker.rerank(
-                    documents=analyzed,
-                    relevance_scores=relevance_scores,
-                    embeddings=embeddings,
-                    top_n=min(top_n * 2, len(analyzed))  # Берем больше для последующей сортировки
-                )
-                
-                analyzed = reranked
-                logger.info(f"MMR reranking complete: {len(analyzed)} works after diversity optimization")
-        
-        # Многокритериальная сортировка (с учетом citations_per_year)
+        # Многокритериальная сортировка
         analyzed.sort(key=lambda x: (
-            -x['relevance_score'],                    # 1. Релевантность
-            -x.get('publication_year', 0),            # 2. Новизна
-            -x.get('citations_per_year', 0),          # 3. Нормализованные цитирования
-            -x.get('cited_by_count', 0)               # 4. Абсолютные цитирования
+            -x['relevance_score'],          # 1. Релевантность
+            -x.get('publication_year', 0),  # 2. Новизна
+            -x.get('cited_by_count', 0)     # 3. Цитирования (в пределах диапазона)
         ))
         
         # Apply top_n limit
         result = analyzed[:top_n]
         
         # Log summary statistics
-        logger.info(f"Found {len(result)} unique works after filtering and MMR")
+        logger.info(f"Found {len(result)} unique works after filtering")
         logger.info(f"Removed {len(works) - len(analyzed)} works due to filters")
         if len(analyzed) > len(result):
             logger.info(f"Limited from {len(analyzed)} to {len(result)} works by top_n parameter")
@@ -3099,13 +2424,11 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
     # Расчет статистик
     if data:
         avg_citations = np.mean([w.get('cited_by_count', 0) for w in data])
-        avg_citations_per_year = np.mean([w.get('citations_per_year', 0) for w in data])
         oa_count = sum(1 for w in data if w.get('is_oa'))
         recent_count = sum(1 for w in data if w.get('publication_year', 0) >= datetime.now().year - 2)
         
         stats_text = f"""
         Average citations: {avg_citations:.1f} | 
-        Citations/year: {avg_citations_per_year:.1f} |
         Open Access papers: {oa_count} | 
         Recent papers (≤2 years): {recent_count}
         """
@@ -3271,20 +2594,16 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         
         # Основные метрики
         citations = work.get('cited_by_count', 0)
-        citations_per_year = work.get('citations_per_year', 0)
         year = work.get('publication_year', 'N/A')
         relevance = work.get('relevance_score', 0)
-        semantic = work.get('semantic_score', 0)
         journal = clean_text(work.get('journal_name', 'N/A')[:40])
         
         metrics_text = f"""
         <b>Citations:</b> {citations} | 
-        <b>Cit./year:</b> {citations_per_year:.1f} |
         <b>Year:</b> {year} | 
-        <b>Score:</b> {relevance:.1f}/10 |
-        <b>Semantic:</b> {semantic:.1f}/5 |
+        <b>Relevance Score:</b> {relevance}/10 | 
         <b>Journal:</b> {journal} | 
-        <b>OA:</b> {'Yes' if work.get('is_oa') else 'No'}
+        <b>Open Access:</b> {'Yes' if work.get('is_oa') else 'No'}
         """
         story.append(Paragraph(metrics_text, metrics_style))
         
@@ -3292,11 +2611,6 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         if work.get('matched_keywords'):
             keywords = ', '.join(work.get('matched_keywords', [])[:5])
             story.append(Paragraph(f"<b>Matched Keywords:</b> {clean_text(keywords)}", keywords_style))
-        
-        # Ключевые слова из OpenAlex
-        if work.get('openalex_keywords'):
-            oa_keywords = ', '.join(work.get('openalex_keywords', [])[:3])
-            story.append(Paragraph(f"<b>OA Keywords:</b> {clean_text(oa_keywords)}", details_style))
         
         # DOI и ссылка
         doi = work.get('doi', '')
@@ -3327,10 +2641,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         
         # Подготовка данных для статистики
         citations_list = [w.get('cited_by_count', 0) for w in data]
-        citations_per_year_list = [w.get('citations_per_year', 0) for w in data]
         years_list = [w.get('publication_year', 0) for w in data if w.get('publication_year', 0) > 1900]
-        relevance_list = [w.get('relevance_score', 0) for w in data]
-        semantic_list = [w.get('semantic_score', 0) for w in data if w.get('semantic_score', 0) > 0]
         
         if citations_list and years_list:
             # Базовая статистика
@@ -3339,15 +2650,12 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
                 ["Total Papers", len(data)],
                 ["Average Citations", f"{np.mean(citations_list):.2f}"],
                 ["Median Citations", f"{np.median(citations_list):.2f}"],
-                ["Avg Citations/Year", f"{np.mean(citations_per_year_list):.2f}"],
                 ["Min Citations", min(citations_list)],
                 ["Max Citations", max(citations_list)],
                 ["Open Access Papers", sum(1 for w in data if w.get('is_oa'))],
                 ["Average Year", f"{np.mean(years_list):.1f}"],
                 ["Most Recent Year", max(years_list) if years_list else "N/A"],
-                ["Average Relevance", f"{np.mean(relevance_list):.2f}/10"],
-                ["Avg Semantic Score", f"{np.mean(semantic_list):.2f}/5" if semantic_list else "N/A"],
-                ["Papers with OA Keywords", sum(1 for w in data if w.get('openalex_keywords'))]
+                ["Average Relevance", f"{np.mean([w.get('relevance_score', 0) for w in data]):.2f}/10"]
             ]
             
             # Создаем таблицу статистики
@@ -3405,14 +2713,7 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         "• Literature reviews of emerging topics",
         "• Identifying research gaps",
         "• Finding novel methodologies",
-        "• Cross-disciplinary connections",
-        "",
-        "ENHANCED ANALYSIS FEATURES:",
-        "• Semantic similarity using sentence transformers",
-        "• IDF weighting within topic context",
-        "• Position-based term weighting",
-        "• OpenAlex keywords integration",
-        "• MMR diversity optimization"
+        "• Cross-disciplinary connections"
     ]
     
     for conclusion in conclusions:
@@ -3483,19 +2784,12 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
     
     if data:
         avg_citations = np.mean([w.get('cited_by_count', 0) for w in data])
-        avg_citations_per_year = np.mean([w.get('citations_per_year', 0) for w in data])
         oa_count = sum(1 for w in data if w.get('is_oa'))
         recent_count = sum(1 for w in data if w.get('publication_year', 0) >= datetime.now().year - 2)
-        avg_relevance = np.mean([w.get('relevance_score', 0) for w in data])
-        avg_semantic = np.mean([w.get('semantic_score', 0) for w in data if w.get('semantic_score', 0) > 0])
         
         output.append(f"  Average citations: {avg_citations:.2f}")
-        output.append(f"  Average citations/year: {avg_citations_per_year:.2f}")
         output.append(f"  Open Access papers: {oa_count}")
         output.append(f"  Recent papers (≤2 years): {recent_count}")
-        output.append(f"  Average relevance: {avg_relevance:.2f}/10")
-        if avg_semantic:
-            output.append(f"  Average semantic score: {avg_semantic:.2f}/5")
     
     output.append("")
     output.append("© CTA - Chemical Technology Acta")
@@ -3589,10 +2883,9 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
         # Номер и релевантность
         relevance_score = work.get('relevance_score', 0)
         relevance_stars = "★" * min(int(relevance_score), 5) + "☆" * max(5 - int(relevance_score), 0)
-        semantic_score = work.get('semantic_score', 0)
         
         output.append(f"PAPER #{i:03d}")
-        output.append(f"Relevance: {relevance_score:.1f}/10 {relevance_stars} | Semantic: {semantic_score:.1f}/5")
+        output.append(f"Relevance: {relevance_score}/10 {relevance_stars}")
         output.append("-" * 40)
         
         # Заголовок
@@ -3608,27 +2901,21 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
         
         # Основные метрики
         citations = work.get('cited_by_count', 0)
-        citations_per_year = work.get('citations_per_year', 0)
         year = work.get('publication_year', 'N/A')
         journal = work.get('journal_name', 'N/A')
         
         output.append("METRICS:")
-        output.append(f"  • Citations: {citations} ({citations_per_year:.1f}/year)")
+        output.append(f"  • Citations: {citations}")
         output.append(f"  • Year: {year}")
         output.append(f"  • Journal/Conference: {journal}")
         output.append(f"  • Open Access: {'Yes' if work.get('is_oa') else 'No'}")
         
-        # Ключевые слова из OpenAlex
-        if work.get('openalex_keywords'):
-            oa_keywords = ', '.join(work.get('openalex_keywords', [])[:5])
-            output.append(f"OA KEYWORDS: {oa_keywords}")
-        
-        # Совпавшие ключевые слова
+        # Ключевые слова
         if work.get('matched_keywords'):
             keywords = work.get('matched_keywords', [])
-            output.append(f"MATCHED: {', '.join(keywords[:5])}")
+            output.append(f"KEYWORDS: {', '.join(keywords[:5])}")
             if len(keywords) > 5:
-                output.append(f"         + {len(keywords) - 5} more")
+                output.append(f"          + {len(keywords) - 5} more keywords")
         
         # DOI и ссылка
         doi = work.get('doi', '')
@@ -3673,14 +2960,11 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
         output.append("")
         
         citations_list = [w.get('cited_by_count', 0) for w in data]
-        citations_per_year_list = [w.get('citations_per_year', 0) for w in data]
         relevance_list = [w.get('relevance_score', 0) for w in data]
-        semantic_list = [w.get('semantic_score', 0) for w in data if w.get('semantic_score', 0) > 0]
         
         if citations_list:
             output.append("CITATION ANALYSIS:")
             output.append(f"  Average: {np.mean(citations_list):.2f}")
-            output.append(f"  Average/year: {np.mean(citations_per_year_list):.2f}")
             output.append(f"  Median: {np.median(citations_list):.2f}")
             output.append(f"  Minimum: {min(citations_list)}")
             output.append(f"  Maximum: {max(citations_list)}")
@@ -3705,9 +2989,6 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
             output.append("RELEVANCE SCORE ANALYSIS:")
             output.append(f"  Average: {np.mean(relevance_list):.2f}/10")
             output.append(f"  Median: {np.median(relevance_list):.2f}/10")
-            
-            if semantic_list:
-                output.append(f"  Average Semantic: {np.mean(semantic_list):.2f}/5")
             
             # Распределение по релевантности
             relevance_counts = {score: 0 for score in range(1, 11)}
@@ -3740,8 +3021,7 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
             output.append(f"  {i}. {title}")
             output.append(f"     Year: {work.get('publication_year', 'N/A')}, "
                          f"Citations: {work.get('cited_by_count', 0)}, "
-                         f"Score: {work.get('relevance_score', 0):.1f}/10, "
-                         f"Cit./year: {work.get('citations_per_year', 0):.1f}")
+                         f"Score: {work.get('relevance_score', 0)}/10")
         
         output.append("")
         output.append("Most Cited (among under-cited):")
@@ -3778,13 +3058,6 @@ def generate_txt(data: List[dict], topic_name: str) -> str:
         "• Low citation counts don't necessarily indicate low quality",
         "• Consider these for literature reviews and gap analysis",
         "• They may contain novel methodologies or cross-disciplinary insights",
-        "",
-        "ENHANCED ANALYSIS FEATURES USED:",
-        "• Semantic similarity (sentence transformers)",
-        "• IDF weighting within topic context",
-        "• Position-based term weighting",
-        "• OpenAlex keywords integration",
-        "• MMR diversity optimization",
         "",
         "RECOMMENDED ACTIONS:",
         "1. Review high-relevance papers for potential citations",
@@ -3891,7 +3164,7 @@ def create_result_card_compact(work: dict, index: int):
                     {badge_text}
                 </span>
                 <span style="background: #e3f2fd; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 5px;">
-                    Score: {work.get('relevance_score', 0):.1f}
+                    Score: {work.get('relevance_score', 0)}
                 </span>
             </div>
             <span style="color: #666; font-size: 0.8rem;">{work.get('publication_year', '')}</span>
@@ -4286,13 +3559,13 @@ def step_topic_selection():
     create_topic_selection_ui()
 
 def step_results():
-    """Шаг 5: Результаты (обновленный с фильтрацией на стороне API и улучшенным анализом)"""
+    """Шаг 5: Результаты (обновленный с фильтрацией на стороне API)"""
     create_back_button()
     
     st.markdown("""
     <div class="step-card">
         <h3 style="margin: 0; font-size: 1.3rem;">📊 Step 5: Analysis Results</h3>
-        <p style="margin: 5px 0; font-size: 0.9rem;">Fresh papers in your research area with enhanced semantic analysis.</p>
+        <p style="margin: 5px 0; font-size: 0.9rem;">Fresh papers in your research area with server-side filtering.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -4579,6 +3852,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
