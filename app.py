@@ -1253,7 +1253,7 @@ def enrich_work_data(work: dict) -> dict:
         'publication_year': work.get('publication_year', 0),
         'cited_by_count': work.get('cited_by_count', 0),
         'type': work.get('type', ''),
-        'abstract': (work.get('abstract') or '')[:500],
+        'abstract': (work.get('abstract') or '')[:1000],
         'doi_url': f"https://doi.org/{doi_clean}" if doi_clean else '',
     }
     
@@ -3852,3 +3852,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
