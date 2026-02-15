@@ -12,5 +12,7 @@ ratelimit
 joblib
 reportlab
 xlsxwriter
-
-
+sentence-transformers
+torch
+transformers
+scikit-learn
