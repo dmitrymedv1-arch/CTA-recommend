@@ -3867,13 +3867,10 @@ def create_result_card_compact(work: dict, index: int):
         badge_color = "#4CAF50"
         badge_text = "0 citations"
     elif citation_count <= 3:
-        badge_color = "#4CAF50"
         badge_text = f"{citation_count} citation{'s' if citation_count > 1 else ''}"
     elif citation_count <= 10:
-        badge_color = "#FF9800"
         badge_text = f"{citation_count} citations"
     else:
-        badge_color = "#f44336"
         badge_text = f"{citation_count} citations"
     
     oa_badge = '🔓' if work.get('is_oa') else '🔒'
@@ -3887,6 +3884,12 @@ def create_result_card_compact(work: dict, index: int):
     diversity_badge = ""
     if work.get('diversity_cluster'):
         diversity_badge = f'<span class="cluster-badge">Cluster {work["diversity_cluster"]}</span>'
+    
+    # Экранируем специальные символы в названии и авторах
+    import html
+    title_escaped = html.escape(title)
+    authors_escaped = html.escape(authors)
+    journal_escaped = html.escape(work.get('journal_name', '')[:30])
     
     st.markdown(f"""
     <div class="result-card">
@@ -3903,11 +3906,11 @@ def create_result_card_compact(work: dict, index: int):
             </div>
             <span style="color: #666; font-size: 0.8rem;">{work.get('publication_year', '')}</span>
         </div>
-        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title}</div>
-        <div style="color: #555; font-size: 0.85rem; margin-bottom: 5px;">👤 {authors}</div>
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title_escaped}</div>
+        <div style="color: #555; font-size: 0.85rem; margin-bottom: 5px;">👤 {authors_escaped}</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
             <div>
-                <span>{oa_badge} {work.get('journal_name', '')[:30]}</span>
+                <span>{oa_badge} {journal_escaped}</span>
                 <span style="color: #666; font-size: 0.8rem; margin-left: 10px;">📊 {citations_per_year:.1f}/year</span>
             </div>
             <a href="{doi_url}" target="_blank" style="color: #2196F3; text-decoration: none; font-size: 0.85rem;">
@@ -4589,6 +4592,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
