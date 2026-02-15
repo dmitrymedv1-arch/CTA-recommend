@@ -3867,10 +3867,13 @@ def create_result_card_compact(work: dict, index: int):
         badge_color = "#4CAF50"
         badge_text = "0 citations"
     elif citation_count <= 3:
+        badge_color = "#4CAF50"
         badge_text = f"{citation_count} citation{'s' if citation_count > 1 else ''}"
     elif citation_count <= 10:
+        badge_color = "#FF9800"
         badge_text = f"{citation_count} citations"
     else:
+        badge_color = "#f44336"
         badge_text = f"{citation_count} citations"
     
     oa_badge = '🔓' if work.get('is_oa') else '🔒'
@@ -4592,6 +4595,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
