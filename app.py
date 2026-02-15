@@ -3887,7 +3887,7 @@ def create_result_card_compact(work: dict, index: int):
     diversity_badge = ""
     if work.get('diversity_cluster'):
         diversity_badge = f'<span class="cluster-badge">Cluster {work["diversity_cluster"]}</span>'
-    
+
     st.markdown(f"""
     <div class="result-card">
         <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
@@ -3914,7 +3914,7 @@ def create_result_card_compact(work: dict, index: int):
                 🔗 View Article
             </a>
         </div>
-    </div>
+    </div>  <!-- ← вот это закрытие ОБЯЗАТЕЛЬНО должно быть -->
     """, unsafe_allow_html=True)
 
 def create_topic_selection_ui():
@@ -4589,3 +4589,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
