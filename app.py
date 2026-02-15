@@ -3887,35 +3887,38 @@ def create_result_card_compact(work: dict, index: int):
     diversity_badge = ""
     if work.get('diversity_cluster'):
         diversity_badge = f'<span class="cluster-badge">Cluster {work["diversity_cluster"]}</span>'
-
-    st.markdown(f"""
-    <div class="result-card">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <div>
-                <span style="font-weight: 600; color: #667eea; margin-right: 8px;">#{index}</span>
-                <span style="background: {badge_color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">
-                    {badge_text}
-                </span>
-                <span style="background: #e3f2fd; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 5px;">
-                    Score: {work.get('relevance_score', 0):.1f}
-                </span>
-                {diversity_badge}
-            </div>
-            <span style="color: #666; font-size: 0.8rem;">{work.get('publication_year', '')}</span>
+    
+    # Полностью самостоятельный HTML-блок с закрытием всех тегов
+    card_html = f"""
+<div class="result-card">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+        <div>
+            <span style="font-weight: 600; color: #667eea; margin-right: 8px;">#{index}</span>
+            <span style="background: {badge_color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">
+                {badge_text}
+            </span>
+            <span style="background: #e3f2fd; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 5px;">
+                Score: {work.get('relevance_score', 0):.1f}
+            </span>
+            {diversity_badge}
         </div>
-        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title}</div>
-        <div style="color: #555; font-size: 0.85rem; margin-bottom: 5px;">👤 {authors}</div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-            <div>
-                <span>{oa_badge} {work.get('journal_name', '')[:30]}</span>
-                <span style="color: #666; font-size: 0.8rem; margin-left: 10px;">📊 {citations_per_year:.1f}/year</span>
-            </div>
-            <a href="{doi_url}" target="_blank" style="color: #2196F3; text-decoration: none; font-size: 0.85rem;">
-                🔗 View Article
-            </a>
+        <span style="color: #666; font-size: 0.8rem;">{work.get('publication_year', '')}</span>
+    </div>
+    <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; line-height: 1.3;">{title}</div>
+    <div style="color: #555; font-size: 0.85rem; margin-bottom: 5px;">👤 {authors}</div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+        <div>
+            <span>{oa_badge} {work.get('journal_name', '')[:30]}</span>
+            <span style="color: #666; font-size: 0.8rem; margin-left: 10px;">📊 {citations_per_year:.1f}/year</span>
         </div>
-    </div>  <!-- ← вот это закрытие ОБЯЗАТЕЛЬНО должно быть -->
-    """, unsafe_allow_html=True)
+        <a href="{doi_url}" target="_blank" style="color: #2196F3; text-decoration: none; font-size: 0.85rem;">
+            🔗 View Article
+        </a>
+    </div>
+</div>
+"""
+    
+    st.markdown(card_html, unsafe_allow_html=True)
 
 def create_topic_selection_ui():
     """Интерфейс выбора темы"""
@@ -4589,4 +4592,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
