@@ -2578,8 +2578,8 @@ def generate_pdf(data: List[dict], topic_name: str) -> bytes:
         text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         return text
     
-    # Обрабатываем каждую статью (ограничиваем 30 для читаемости)
-    for i, work in enumerate(data[:30], 1):
+    # Обрабатываем каждую статью
+    for i, work in enumerate(data[:50], 1):
         # Заголовок статьи
         title = clean_text(work.get('title', 'No title available'))
         story.append(Paragraph(f"{i}. {title}", paper_title_style))
@@ -3852,4 +3852,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
