@@ -3735,7 +3735,7 @@ def step_results():
             st.download_button(
                 label="📊 CSV",
                 data=csv,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.csv",
+                file_name=f"CTA_report_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
@@ -3745,7 +3745,7 @@ def step_results():
             st.download_button(
                 label="📈 Excel",
                 data=excel_data,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.xlsx",
+                file_name=f"CTA_report_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
@@ -3755,7 +3755,7 @@ def step_results():
             st.download_button(
                 label="📝 TXT",
                 data=txt_data,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.txt",
+                file_name=f"CTA_report_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.txt",
                 mime="text/plain",
                 use_container_width=True
             )
@@ -3765,7 +3765,7 @@ def step_results():
             st.download_button(
                 label="📄 PDF",
                 data=pdf_data,
-                file_name=f"under_cited_papers_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.pdf",
+                file_name=f"CTA_report_{st.session_state.get('selected_topic', 'results').replace(' ', '_')}.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
