@@ -3838,9 +3838,6 @@ def main():
     # Прогресс бар (обновлен для 5 шагов)
     create_progress_bar(st.session_state.current_step, 5)
     
-    # Очистка старого кэша
-    clear_old_cache()
-    
     # Отображение текущего шага
     if st.session_state.current_step == 1:
         step_data_input()
