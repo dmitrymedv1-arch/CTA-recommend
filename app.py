@@ -483,14 +483,19 @@ def clear_old_cache():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Преобразуем datetime в строку в ISO формате для SQLite
-    now_str = datetime.now().isoformat(' ', 'seconds')
-    
-    cursor.execute('DELETE FROM works_cache WHERE expires_at <= ?', (now_str,))
-    cursor.execute('DELETE FROM topic_works_cache WHERE expires_at <= ?', (now_str,))
-    cursor.execute('DELETE FROM topics_cache WHERE expires_at <= ?', (now_str,))
-    
-    conn.commit()
+    try:
+        now = datetime.now()
+        
+        cursor.execute('DELETE FROM works_cache WHERE expires_at <= ?', (now,))
+        cursor.execute('DELETE FROM topic_works_cache WHERE expires_at <= ?', (now,))
+        cursor.execute('DELETE FROM topics_cache WHERE expires_at <= ?', (now,))
+        
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Error clearing cache: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 # ============================================================================
 # НОВЫЕ ФУНКЦИИ ДЛЯ ПАРСИНГА ДИАПАЗОНОВ ЦИТИРОВАНИЙ
