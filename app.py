@@ -392,10 +392,12 @@ def init_cache_db():
 def get_cache_key(prefix: str, key: str) -> str:
     return hashlib.md5(f"{prefix}:{key}".encode()).hexdigest()
 
-@st.cache_resource
 def get_db_connection():
+    """Создает новое соединение с БД при каждом вызове"""
     init_cache_db()
-    return sqlite3.connect(CACHE_DB, check_same_thread=False)
+    conn = sqlite3.connect(CACHE_DB, check_same_thread=False)
+    conn.isolation_level = None
+    return conn
 
 def cache_work(doi: str, data: dict):
     conn = get_db_connection()
