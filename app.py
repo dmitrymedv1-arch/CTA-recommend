@@ -480,22 +480,29 @@ def get_cached_topic_stats(topic_id: str) -> Optional[dict]:
     return None
 
 def clear_old_cache():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    """Очищает устаревшие записи из кэша"""
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
         now = datetime.now()
         
-        cursor.execute('DELETE FROM works_cache WHERE expires_at <= ?', (now,))
-        cursor.execute('DELETE FROM topic_works_cache WHERE expires_at <= ?', (now,))
-        cursor.execute('DELETE FROM topics_cache WHERE expires_at <= ?', (now,))
+        cursor.execute('DELETE FROM works_cache WHERE expires_at IS NOT NULL AND expires_at <= ?', (now,))
+        cursor.execute('DELETE FROM topic_works_cache WHERE expires_at IS NOT NULL AND expires_at <= ?', (now,))
+        cursor.execute('DELETE FROM topics_cache WHERE expires_at IS NOT NULL AND expires_at <= ?', (now,))
         
-        conn.commit()
+        changes = cursor.rowcount
+        if changes > 0:
+            conn.commit()
+            logger.info(f"Cleared {changes} expired cache entries")
+        
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
-        conn.rollback()
+        if conn:
+            conn.rollback()
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 # ============================================================================
 # НОВЫЕ ФУНКЦИИ ДЛЯ ПАРСИНГА ДИАПАЗОНОВ ЦИТИРОВАНИЙ
